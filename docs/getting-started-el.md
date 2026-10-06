@@ -35,7 +35,11 @@ npm run dev
 
 Το ιστορικό και οι ρυθμίσεις διατηρούνται μετά την επανεκκίνηση. Με **Clear inbox**, πληκτρολόγησε το όνομα του lab για να διαγράψεις τα captures, το replay history και τα mock receipts αυτού του lab. Το endpoint και οι ρυθμίσεις μένουν, ενώ ο μετρητής του receiver μηδενίζεται.
 
-Το `server/replay.js` υλοποιεί τη ροή και το `web/src/ReplayPanel.jsx` τα controls. Authentication, arbitrary receiver URLs, Redis/BullMQ και αυτόματα retries μένουν για επόμενο στάδιο.
+Το `server/replay.js` υλοποιεί τη ροή και το `web/src/ReplayPanel.jsx` τα controls. Δοκίμασε επίσης το **Protect against duplicate demo actions**. Με ενεργή προστασία και ίδιο `id` / ίδια body bytes, δύο replays δίνουν δύο HTTP responses αλλά μόνο μία demo action. Αν αλλάξεις το body κρατώντας το ίδιο ID, ο receiver επιστρέφει 409. Requests χωρίς usable ID επεξεργάζονται χωρίς προστασία. Τα keys μένουν μετά από restart και αλλαγή ρυθμίσεων· το Clear inbox τα διαγράφει.
+
+Οι μετρητές **Demo actions processed**, **Duplicates skipped** και **Key conflicts** δείχνουν τι έγινε στον receiver. Δεν εκτελούνται πραγματικές πληρωμές. Το `server/receiver.js` γράφει receipt, key και demo action μέσα στην ίδια συναλλαγή.
+
+Authentication, arbitrary receiver URLs, Redis/BullMQ και αυτόματα retries μένουν για επόμενο στάδιο.
 
 ## Έλεγχοι
 

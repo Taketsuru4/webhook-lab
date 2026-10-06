@@ -1916,3 +1916,45 @@ button {
     flex-basis: 100%;
   }
 }
+
+.idempotency-toggle {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+  color: #252a2d !important;
+  margin: 14px 0 0;
+  font-size: 12px !important;
+}
+.idempotency-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
+}
+.receiver-outcomes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  margin: 16px 0;
+  background: #f3f4ed;
+  border-radius: 8px;
+}
+.receiver-outcomes > div {
+  display: grid;
+  gap: 4px;
+}
+.receiver-outcomes strong {
+  font-size: 20px;
+}
+.receiver-outcomes span,
+.receiver-outcomes p {
+  font-size: 10px;
+  color: var(--muted);
+}
+.receiver-outcomes p {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+}
+.receiver-outcome {
+  font-weight: 600;
+}

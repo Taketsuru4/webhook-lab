@@ -74,6 +74,29 @@ const migrations = [
       await tx.query('CREATE INDEX receipts_lab_run_idx ON mock_receipts (lab_id, run_id)');
     },
   },
+  {
+    version: 4,
+    name: 'transactional_receiver_idempotency',
+    async up(tx) {
+      await tx.query(
+        'ALTER TABLE mock_receivers ADD COLUMN idempotency_enabled BOOLEAN NOT NULL DEFAULT false',
+      );
+      await tx.query("ALTER TABLE mock_receipts ADD COLUMN outcome TEXT NOT NULL DEFAULT 'legacy'");
+      await tx.query('ALTER TABLE mock_receipts ADD COLUMN event_id TEXT');
+      await tx.query('ALTER TABLE mock_receipts ADD COLUMN effect_id UUID');
+      await tx.query(`CREATE TABLE mock_effects (
+        id UUID PRIMARY KEY, lab_id UUID NOT NULL REFERENCES labs(id) ON DELETE CASCADE,
+        first_receipt_id UUID NOT NULL REFERENCES mock_receipts(id) ON DELETE CASCADE,
+        event_id TEXT, key_hash TEXT, body_hash TEXT NOT NULL,
+        processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (lab_id, key_hash)
+      )`);
+      // PostgreSQL permits multiple NULL keys for intentionally unguarded demo actions.
+      await tx.query(
+        'CREATE INDEX effects_lab_time_idx ON mock_effects (lab_id, processed_at DESC)',
+      );
+    },
+  },
 ];
 
 export async function runMigrations(database) {

@@ -44,7 +44,19 @@ A lab row lock serializes starting a replay, saving receiver settings and cleari
 
 The dashboard keeps replay controls separate from the original inspector tabs, refreshes history after an action and cancels obsolete reads/actions when selection changes. Cancelling the browser request does not undo a server-side delivery. Running history entries are polled until completion; other history is refreshed manually, so another browser's new attempt is visible after Refresh.
 
-The tradeoff is an immediately runnable local experiment with clear outcomes and small operational cost. A durable worker, configurable external destinations and receiver-side idempotency are separate next steps.
+The tradeoff is an immediately runnable local experiment with clear outcomes and small operational cost. A durable worker and configurable external destinations are separate next steps.
+
+## Transactional receiver idempotency
+
+Migration 4 adds an opt-in guard and `mock_effects`. This table models synthetic actions rather than real payments. Each successful unguarded receipt creates a new action; guarded receipts require a non-empty, supported top-level string `id` to deduplicate. Missing/invalid keys remain inspectable and explicitly process without protection.
+
+`acceptMock` runs inside the receiver transaction while holding the lab row lock. It stores the receipt and demo effect, including a key reservation, atomically. The database also enforces uniqueness of `(lab_id, key_hash)` for guarded actions. SHA-256 keeps the index key bounded for large provider IDs; complete key equality is checked before acknowledging a duplicate. A digest collision fails closed as a conflict. The original body hash must match too: reusing an ID with different bytes is 409, including changes that preserve JSON semantics. This is a deliberate strict-body experiment, not provider-specific normalization.
+
+Configured 500 responses record receipts but perform no action or key registration. A delayed acknowledgement follows the commit, so a sender can time out after processing; a retry then returns 200 with `duplicate` and the same effect ID. HTTP success does not mean a new action occurred. Dashboard counters and attempt outcomes make that distinction visible.
+
+Receiver settings reset only the fail-first counter. Existing effects/keys and aggregate outcome counts survive settings changes and restarts. Disabling protection permits individual actions again; enabling it does not backfill keys from unguarded receipts. Legacy receipts are marked `legacy` without inventing historical actions. Clearing the inbox removes receipts and cascading effects/keys, so a new experiment may process that ID again. Long-term retention of protection records would need a separately chosen policy.
+
+The guarantee covers the demo action stored in the same database transaction. External payments, email or arbitrary side effects require their own idempotency contract or transactional outbox; a database key cannot make a remote action atomic.
 
 ## Next milestone: queued outbound delivery
 

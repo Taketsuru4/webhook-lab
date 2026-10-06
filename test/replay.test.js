@@ -61,11 +61,15 @@ describe('manual replay over real HTTP', () => {
       url: `${base}/requests/${id}/replays`,
       payload: { timeout_ms: timeout },
     });
-  const config = (failFirst = 0, delayMs = 0) =>
+  const config = (failFirst = 0, delayMs = 0, idempotency) =>
     app.inject({
       method: 'PUT',
       url: `${base}/receiver`,
-      payload: { fail_first: failFirst, delay_ms: delayMs },
+      payload: {
+        fail_first: failFirst,
+        delay_ms: delayMs,
+        ...(idempotency === undefined ? {} : { idempotency_enabled: idempotency }),
+      },
     });
 
   it('delivers unchanged JSON, malformed JSON, binary and empty bytes without another capture', async () => {
@@ -146,6 +150,150 @@ describe('manual replay over real HTTP', () => {
     );
   });
 
+  it('protects one demo action across concurrent identical HTTP requests', async () => {
+    await config(0, 0, true);
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app.inject({
+          method: 'POST',
+          url: '/mock/local-playground',
+          payload: '{"id":"same_event","data":{"amount":100}}',
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+    assert.ok(responses.every((response) => response.statusCode === 200));
+    assert.equal(responses.filter((response) => response.json().outcome === 'processed').length, 1);
+    assert.equal(responses.filter((response) => response.json().outcome === 'duplicate').length, 5);
+    assert.equal(new Set(responses.map((response) => response.json().effect_id)).size, 1);
+    const receiver = (await app.inject(`${base}/receiver`)).json();
+    assert.equal(receiver.processed_count, 1);
+    assert.equal(receiver.deduplicated_count, 5);
+    assert.equal(receiver.received_count, 6);
+    assert.equal((await database.query('SELECT * FROM mock_receipts')).rows.length, 6);
+  });
+
+  it('does not reserve keys on 500 and rejects a reused ID with changed bytes', async () => {
+    await config(1, 0, true);
+    const id = await capture('{"id":"bound_event","amount":100}');
+    assert.equal((await replay(id)).json().http_status, 500);
+    assert.equal((await app.inject(`${base}/receiver`)).json().processed_count, 0);
+    const success = (await replay(id)).json();
+    assert.equal(JSON.parse(success.response_body).outcome, 'processed');
+    const duplicate = (await replay(id)).json();
+    assert.equal(JSON.parse(duplicate.response_body).outcome, 'duplicate');
+    const changed = await capture('{"id":"bound_event","amount":200}');
+    const conflict = (await replay(changed)).json();
+    assert.equal(conflict.http_status, 409);
+    assert.equal(conflict.state, 'failed');
+    assert.equal(JSON.parse(conflict.response_body).outcome, 'conflict');
+    const receiver = (await app.inject(`${base}/receiver`)).json();
+    assert.equal(receiver.processed_count, 1);
+    assert.equal(receiver.conflict_count, 1);
+    await config(0, 0, true);
+    assert.equal(JSON.parse((await replay(id)).json().response_body).outcome, 'duplicate');
+    assert.equal((await app.inject(`${base}/receiver`)).json().processed_count, 1);
+  });
+
+  it('prevents repeated demo actions after a timed-out acknowledgement', async () => {
+    await config(0, 300, true);
+    const id = await capture('{"id":"timeout_event"}');
+    const timeout = (await replay(id, 150)).json();
+    assert.equal(timeout.state, 'timeout');
+    assert.equal((await app.inject(`${base}/receiver`)).json().processed_count, 1);
+    await config(0, 0, true);
+    const retry = (await replay(id)).json();
+    assert.equal(retry.state, 'succeeded');
+    assert.equal(JSON.parse(retry.response_body).outcome, 'duplicate');
+    assert.equal((await app.inject(`${base}/receiver`)).json().processed_count, 1);
+  });
+
+  it('processes unguarded deliveries individually and explains missing keys', async () => {
+    const id = await capture('{"id":"unguarded"}');
+    await replay(id);
+    await replay(id);
+    assert.equal((await app.inject(`${base}/receiver`)).json().processed_count, 2);
+    await config(0, 0, true);
+    for (const body of ['{}', '{broken', '{"id":""}', '{"id":42}', '{"id":"nul\\u0000key"}']) {
+      const missing = await capture(body);
+      assert.equal(
+        JSON.parse((await replay(missing)).json().response_body).outcome,
+        'processed_without_key',
+      );
+    }
+    assert.equal((await app.inject(`${base}/receiver`)).json().processed_count, 7);
+  });
+
+  it('preserves complete large keys and scopes them to the receiver lab', async () => {
+    await config(0, 0, true);
+    const prefix = 'a'.repeat(16000);
+    const first = await capture(JSON.stringify({ id: `${prefix}1` }));
+    const second = await capture(JSON.stringify({ id: `${prefix}2` }));
+    await replay(first);
+    await replay(second);
+    assert.equal(JSON.parse((await replay(first)).json().response_body).outcome, 'duplicate');
+    assert.equal((await app.inject(`${base}/receiver`)).json().processed_count, 2);
+    const other = (
+      await app.inject({ method: 'POST', url: '/api/labs', payload: { name: 'Separate demo' } })
+    ).json();
+    await app.inject({
+      method: 'PUT',
+      url: `/api/labs/${other.id}/receiver`,
+      payload: { fail_first: 0, delay_ms: 0, idempotency_enabled: true },
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: `/mock/${other.token}`,
+      payload: JSON.stringify({ id: `${prefix}1` }),
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(response.json().outcome, 'processed');
+    assert.equal((await app.inject(`/api/labs/${other.id}/receiver`)).json().processed_count, 1);
+    // An index digest alone must never establish key equality.
+    await database.query(
+      'UPDATE mock_effects SET event_id = $2 WHERE lab_id = $1 AND event_id = $3',
+      [labId, 'different-complete-key', `${prefix}1`],
+    );
+    assert.equal((await replay(first)).json().http_status, 409);
+  });
+
+  it('rolls back receiver counter, receipt and effect together on a storage failure', async () => {
+    await config(0, 0, true);
+    const original = database.transaction;
+    database.transaction = (callback) =>
+      original((tx) =>
+        callback({
+          query(sql, params) {
+            if (sql.includes('INSERT INTO mock_effects'))
+              throw new Error('Demo action storage unavailable');
+            return tx.query(sql, params);
+          },
+        }),
+      );
+    try {
+      const failed = await app.inject({
+        method: 'POST',
+        url: '/mock/local-playground',
+        payload: '{"id":"retryable"}',
+        headers: { 'content-type': 'application/json' },
+      });
+      assert.equal(failed.statusCode, 500);
+    } finally {
+      database.transaction = original;
+    }
+    const receiver = (await app.inject(`${base}/receiver`)).json();
+    assert.equal(receiver.received_count, 0);
+    assert.equal(receiver.processed_count, 0);
+    assert.equal((await database.query('SELECT * FROM mock_receipts')).rows.length, 0);
+    const retry = await app.inject({
+      method: 'POST',
+      url: '/mock/local-playground',
+      payload: '{"id":"retryable"}',
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(retry.json().outcome, 'processed');
+  });
+
   it('scopes replay and history to a lab and validates scenario input', async () => {
     const id = await capture('{}');
     const other = (
@@ -204,6 +352,7 @@ describe('manual replay over real HTTP', () => {
     assert.equal((await app.inject(`/api/labs/${other.id}/stats`)).json().total, 1);
     assert.equal((await database.query('SELECT * FROM replay_runs')).rows.length, 0);
     assert.equal((await database.query('SELECT * FROM mock_receipts')).rows.length, 0);
+    assert.equal((await database.query('SELECT * FROM mock_effects')).rows.length, 0);
     const receiver = (await app.inject(`${base}/receiver`)).json();
     assert.equal(receiver.fail_first, 1);
     assert.equal(receiver.received_count, 0);
@@ -345,6 +494,51 @@ it('persists replay history and receiver settings across an embedded restart', a
     app = await createApp({ database, rateLimiting: false, serveWeb: false });
     assert.equal((await app.inject(`${base}/requests/${id}/replays`)).json().runs[0].id, run.id);
     assert.equal((await app.inject(`${base}/receiver`)).json().received_count, 1);
+  } finally {
+    await app?.close();
+    await database?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('retains protected receiver effects after restarting and re-acknowledges duplicates', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'webhook-idempotency-'));
+  let database;
+  let app;
+  const request = {
+    method: 'POST',
+    url: '/mock/local-playground',
+    payload: '{"id":"durable-key"}',
+    headers: { 'content-type': 'application/json' },
+  };
+  try {
+    database = await openDatabase({ url: null, dataDir: directory });
+    app = await createApp({ database, rateLimiting: false, serveWeb: false });
+    await app.inject({
+      method: 'PUT',
+      url: `${base}/receiver`,
+      payload: { fail_first: 0, delay_ms: 0, idempotency_enabled: true },
+    });
+    const first = (await app.inject(request)).json();
+    assert.equal(first.outcome, 'processed');
+    await app.close();
+    await database.close();
+    database = await openDatabase({ url: null, dataDir: directory });
+    app = await createApp({ database, rateLimiting: false, serveWeb: false });
+    const duplicate = (await app.inject(request)).json();
+    assert.equal(duplicate.outcome, 'duplicate');
+    assert.equal(duplicate.effect_id, first.effect_id);
+    const summary = (await app.inject(`${base}/receiver`)).json();
+    assert.equal(summary.processed_count, 1);
+    assert.equal(summary.deduplicated_count, 1);
+    assert.equal(summary.idempotency_enabled, true);
+    await app.inject({
+      method: 'DELETE',
+      url: `${base}/requests`,
+      payload: { confirm: 'Payment playground' },
+    });
+    assert.equal((await app.inject(request)).json().outcome, 'processed');
+    assert.equal((await app.inject(`${base}/receiver`)).json().processed_count, 1);
   } finally {
     await app?.close();
     await database?.close();
