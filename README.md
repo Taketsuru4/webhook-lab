@@ -105,7 +105,9 @@ See [design decisions](docs/architecture.md) and the [Greek getting-started guid
 npm run verify
 ```
 
-Runs lint, formatting checks, the Node.js test suite, and a production UI build. Tests cover exact bytes, Unicode, malformed JSON, duplicates arriving concurrently, cross-lab isolation, header redaction, storage failures, literal search wildcards, pagination, validation, request limits, and persistence across a database restart.
+Runs lint, formatting checks, API and React UI test suites, and a production UI build. API tests cover exact bytes, Unicode, malformed JSON, duplicates arriving concurrently, cross-lab isolation, header redaction, storage failures, literal search wildcards, pagination, validation, request limits, and persistence across a database restart. UI tests exercise the dashboard in React Strict Mode and cover repeated selection, pending details, switching requests, and reopening the inspector.
+
+Run the suites individually with `npm run test:api` or `npm run test:ui`. UI tests use Vitest, React Testing Library, and jsdom with mocked API responses; they are component interaction tests, not full browser/server integration tests.
 
 For external PostgreSQL tests, provide a **dedicated test database**:
 

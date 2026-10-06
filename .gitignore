@@ -3,5 +3,6 @@ dist/
 .env
 .data/
 artifacts/
+.vitest/
 *.log
 .DS_Store
