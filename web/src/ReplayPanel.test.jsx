@@ -128,3 +128,33 @@ it('renders persisted timeouts as uncertain receipts rather than confirmed recei
     ),
   ).toBeTruthy();
 });
+
+it('saves the idempotency guard and distinguishes duplicate acknowledgement from a new action', async () => {
+  receiver = {
+    ...receiver,
+    idempotency_enabled: true,
+    processed_count: 1,
+    deduplicated_count: 1,
+    conflict_count: 0,
+  };
+  runs = [
+    { ...run(), response_body: JSON.stringify({ outcome: 'duplicate', processed_count: 1 }) },
+  ];
+  const user = userEvent.setup();
+  render(<ReplayPanel capture={capture} labId="lab-1" />);
+  expect(await screen.findByText('Duplicate skipped: original demo action retained')).toBeTruthy();
+  expect(screen.getByText('Succeeded')).toBeTruthy();
+  expect(screen.getByText('Demo actions processed')).toBeTruthy();
+  await user.click(screen.getByText(/Receiver behavior/));
+  const guard = screen.getByRole('checkbox', { name: 'Protect against duplicate demo actions' });
+  expect(guard.checked).toBe(true);
+  await user.click(guard);
+  expect(screen.getByRole('button', { name: 'Replay original body' }).disabled).toBe(true);
+  await user.click(screen.getByRole('button', { name: 'Save & reset receiver' }));
+  expect(
+    api.mock.calls.some(
+      ([_path, options]) =>
+        options?.method === 'PUT' && JSON.parse(options.body).idempotency_enabled === false,
+    ),
+  ).toBe(true);
+});

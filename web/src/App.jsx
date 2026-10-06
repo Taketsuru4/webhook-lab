@@ -576,9 +576,9 @@ function Guide({ lab, onError, onSend }) {
             <span>Available now</span>
           </div>
           <div>
-            <span className="roadmap-dot" />
+            <span className="roadmap-dot done" />
             <strong>Idempotency demo</strong>
-            <span>Planned</span>
+            <span>Available now</span>
           </div>
         </div>
         <p className="muted">

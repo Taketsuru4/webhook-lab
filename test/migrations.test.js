@@ -57,7 +57,7 @@ it('upgrades an existing capture database and restores full identities without l
       }
       assert.equal(
         (await tx.query('SELECT count(*)::int AS count FROM schema_migrations')).rows[0].count,
-        3,
+        4,
       );
       await tx.query(`DROP SCHEMA ${schema} CASCADE`);
     });

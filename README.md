@@ -51,6 +51,7 @@ The API returns `202` only after the request has been stored. `202` means **capt
 - Configure the first 0–10 receiver requests to return 500, then 200; add 0–5000 ms response delay.
 - Set replay timeouts (100–10000 ms) and inspect persisted status, duration, errors and response bodies.
 - Browse attempt history, including uncertain timeouts and interrupted runs.
+- Enable a transactional receiver-side idempotency demo and compare HTTP deliveries with demo actions processed.
 - Clear one lab’s captures, replay history and mock receipts after typing its name.
 - Copy endpoint URLs and safely quoted curl commands.
 - Use the responsive dashboard with keyboard navigation and reduced-motion support.
@@ -66,6 +67,19 @@ Nothing is seeded into the inbox. The sample sender creates real, synthetic requ
 5. Refresh the page and reselect the capture: history and receiver settings remain available. **Clear inbox** deletes only the selected lab’s experiments and resets its receiver counter, preserving its endpoint and saved scenario.
 
 Each click creates one new attempt. A timeout does not prove that the receiver did nothing. Replays forward the original body and Content-Type only; captured credentials and provider signature headers are excluded.
+
+## Compare duplicate delivery with duplicate processing
+
+Open **Receiver behavior**, enable **Protect against duplicate demo actions**, and save. Use a JSON capture with a non-empty top-level `id`, then replay it twice: both replies are HTTP 200, while the receiver processes one demo action and skips the duplicate. The response and dashboard explain the distinction.
+
+- The first successful guarded request binds its full event ID to the original body bytes, scoped to the lab.
+- The same ID and same bytes acknowledge the existing demo action without repeating it.
+- The same ID with different bytes returns 409 without processing a new action; even JSON whitespace changes count as different bytes.
+- Configured 500 responses do not reserve the key. A timeout may happen after the receiver committed the demo action; retrying that body then skips the duplicate.
+- Missing, empty or unsupported IDs process individually with a visible explanation. Untyped JSON with a valid `id` can still be protected.
+- Protection records survive server restart and saving receiver settings. **Clear inbox** deletes them and resets the experiment. Unguarded/legacy requests do not establish guarded keys retroactively.
+
+This is an explicit **demo action**, not a real payment or external side effect. Key registration, receipt and demo action are stored in one database transaction, with a per-lab unique key constraint and complete-ID checks alongside fixed-size hashes. Receiver totals count actions, skipped duplicates and key conflicts since the last inbox cleanup.
 
 ## Use an external PostgreSQL server
 
@@ -109,6 +123,7 @@ The capture route has its own raw-buffer content parser. Management routes keep 
 | ------------------------- | ------------------------------------------------------------ |
 | `server/index.js`         | Database connection, server startup, shutdown                |
 | `server/app.js`           | Routes, validation, limits, capture parser                   |
+| `server/receiver.js`      | Atomic mock receipts, idempotency keys and demo effects      |
 | `server/replay.js`        | Mock scenarios, byte-preserving HTTP replay, attempt history |
 | `server/capture.js`       | Event metadata, header redaction, request storage            |
 | `server/database.js`      | Embedded and external database adapters                      |
@@ -158,7 +173,7 @@ An event is identified only by complete top-level string fields `id` and `type`.
 - [ ] Add automatic retries, duplicate-delivery and out-of-order scenarios.
 - [x] Mock receiver with fail-first responses and delayed acknowledgements.
 - [x] Numbered migrations and confirmed per-lab inbox cleanup.
-- [ ] Add a transactional receiver-side idempotency demo.
+- [x] Transactional receiver-side idempotency demo with payload-conflict detection.
 - [ ] Add authentication, retention, and restricted outbound destinations for hosted use.
 
 ## License

@@ -10,11 +10,31 @@ const label = {
   interrupted: 'Interrupted',
 };
 
+function ReceiverOutcome({ body }) {
+  let outcome;
+  try {
+    outcome = JSON.parse(body)?.outcome;
+  } catch {
+    /* Non-JSON responses remain available as text. */
+  }
+  const outcomes = {
+    processed: 'One demo action processed',
+    processed_without_key: 'Processed without duplicate protection: no usable event ID',
+    duplicate: 'Duplicate skipped: original demo action retained',
+    conflict: 'Event ID conflict: no new action',
+    failed: 'Configured receiver failure: no action',
+  };
+  return Object.hasOwn(outcomes, outcome) ? (
+    <p className="receiver-outcome">{outcomes[outcome]}</p>
+  ) : null;
+}
+
 export default function ReplayPanel({ capture, labId }) {
   const [config, setConfig] = useState(null);
   const [history, setHistory] = useState(null);
   const [failFirst, setFailFirst] = useState(null);
   const [delayMs, setDelayMs] = useState(null);
+  const [idempotency, setIdempotency] = useState(null);
   const [timeoutMs, setTimeoutMs] = useState(2000);
   const [offset, setOffset] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -89,7 +109,9 @@ export default function ReplayPanel({ capture, labId }) {
   const dirty =
     config &&
     (Number(failFirst ?? config?.fail_first ?? 0) !== config.fail_first ||
-      Number(delayMs ?? config?.delay_ms ?? 0) !== config.delay_ms);
+      Number(delayMs ?? config?.delay_ms ?? 0) !== config.delay_ms ||
+      (idempotency ?? config?.idempotency_enabled ?? false) !==
+        (config.idempotency_enabled ?? false));
 
   return (
     <section className="replay-panel" aria-label="Replay experiment">
@@ -123,6 +145,7 @@ export default function ReplayPanel({ capture, labId }) {
               ...jsonPost({
                 fail_first: Number(failFirst ?? config?.fail_first ?? 0),
                 delay_ms: Number(delayMs ?? config?.delay_ms ?? 0),
+                idempotency_enabled: idempotency ?? config?.idempotency_enabled ?? false,
               }),
               method: 'PUT',
             });
@@ -154,6 +177,19 @@ export default function ReplayPanel({ capture, labId }) {
               />
             </label>
           </div>
+          <label className="idempotency-toggle">
+            <input
+              type="checkbox"
+              checked={idempotency ?? config?.idempotency_enabled ?? false}
+              onChange={(event) => setIdempotency(event.target.checked)}
+              disabled={Boolean(busy) || loading}
+            />{' '}
+            Protect against duplicate demo actions
+          </label>
+          <p className="muted">
+            Uses a non-empty top-level event ID. Reusing it with different body bytes returns 409.
+            Saving keeps existing protection records; Clear inbox resets the experiment.
+          </p>
           <button
             className="button secondary compact"
             disabled={!config || loading || Boolean(busy)}
@@ -167,6 +203,23 @@ export default function ReplayPanel({ capture, labId }) {
           </p>
         )}
       </details>
+      {config && (
+        <div className="receiver-outcomes" aria-label="Mock receiver demo totals">
+          <div>
+            <strong>{config.processed_count ?? 0}</strong>
+            <span>Demo actions processed</span>
+          </div>
+          <div>
+            <strong>{config.deduplicated_count ?? 0}</strong>
+            <span>Duplicates skipped</span>
+          </div>
+          <div>
+            <strong>{config.conflict_count ?? 0}</strong>
+            <span>Key conflicts</span>
+          </div>
+          <p>Totals since inbox cleanup. No real payments are executed.</p>
+        </div>
+      )}
       <form
         className="replay-action"
         onSubmit={(event) => {
@@ -221,6 +274,7 @@ export default function ReplayPanel({ capture, labId }) {
                 </span>
               </div>
               <time dateTime={run.started_at}>{new Date(run.started_at).toLocaleString()}</time>
+              <ReceiverOutcome body={run.response_body} />
               {run.error && <p>{run.error}</p>}
               {run.response_body && (
                 <details>

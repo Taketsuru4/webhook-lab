@@ -30,3 +30,11 @@ At the time of this October 2 verification, GitHub Actions was configured but ha
 - Reload retained all four attempt records. Typed-name confirmation rejected a wrong name, then clearing removed captures and attempt history while preserving the lab.
 - No browser JavaScript errors were reported. Screenshots were visually inspected at 1440 and 375 px; checks at 375 and 768 px found no document-level horizontal overflow. No new accessibility audit was performed for the replay UI.
 - GitHub CI independently validates the same code against embedded PostgreSQL and native PostgreSQL 17; use the linked PR checks for remote results.
+
+## Receiver idempotency checks — October 6, 2026
+
+- 35 API tests and 19 UI tests passed, with lint, formatting and production build.
+- Six concurrent identical receiver requests produce one demo effect and five duplicate acknowledgements. Tests cover configured 500 before processing, changed-body conflicts, timeout followed by a safe retry, missing keys, complete 16 KiB event IDs, lab isolation, complete-key checking, atomic rollback and keys surviving restart.
+- Saving settings preserves existing protection records. Confirmed cleanup deletes them; a subsequent experiment can process that key again.
+- An isolated browser flow enabled protection and replayed one capture twice: the dashboard reported one demo action and one skipped duplicate, while both attempts returned HTTP 200. The history distinguished the new action from duplicate acknowledgement.
+- The mobile screenshot was inspected at 375 px; no document-level horizontal overflow or browser JavaScript errors were reported. Browser data was separate from the application's data directory and the temporary server/browser were closed after checks.

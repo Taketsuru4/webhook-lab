@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { acceptMock, receiverSummary } from './receiver.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const labParams = { type: 'object', required: ['labId'], properties: { labId: uuid } };
@@ -116,7 +117,7 @@ export async function registerReplay(app, database, { transport = deliver } = {}
   app.get('/api/labs/:labId/receiver', { schema: { params: labParams } }, async (request) =>
     database.transaction(async (tx) => {
       await lockLab(tx, request.params.labId);
-      return settings(tx, request.params.labId);
+      return receiverSummary(tx, await settings(tx, request.params.labId));
     }),
   );
   app.put(
@@ -131,6 +132,7 @@ export async function registerReplay(app, database, { transport = deliver } = {}
           properties: {
             fail_first: { type: 'integer', minimum: 0, maximum: 10 },
             delay_ms: { type: 'integer', minimum: 0, maximum: 5000 },
+            idempotency_enabled: { type: 'boolean' },
           },
         },
       },
@@ -141,12 +143,17 @@ export async function registerReplay(app, database, { transport = deliver } = {}
         await lockLab(tx, labId);
         await ensureIdle(tx, labId);
         await settings(tx, labId);
-        return (
-          await tx.query(
-            `UPDATE mock_receivers SET fail_first = $2, delay_ms = $3, received_count = 0 WHERE lab_id = $1 RETURNING *`,
-            [labId, request.body.fail_first, request.body.delay_ms],
-          )
-        ).rows[0];
+        const { rows } = await tx.query(
+          `UPDATE mock_receivers SET fail_first = $2, delay_ms = $3, received_count = 0,
+           idempotency_enabled = COALESCE($4, idempotency_enabled) WHERE lab_id = $1 RETURNING *`,
+          [
+            labId,
+            request.body.fail_first,
+            request.body.delay_ms,
+            request.body.idempotency_enabled ?? null,
+          ],
+        );
+        return receiverSummary(tx, rows[0]);
       }),
   );
 
@@ -318,34 +325,13 @@ export async function registerReplay(app, database, { transport = deliver } = {}
               'UPDATE mock_receivers SET received_count = received_count + 1 WHERE lab_id = $1 RETURNING *',
               [labId],
             );
-            const config = rows[0];
-            const status = config.received_count <= config.fail_first ? 500 : 200;
-            const body = request.body || Buffer.alloc(0);
-            await tx.query(
-              `INSERT INTO mock_receipts (id, lab_id, run_id, raw_body_base64, size_bytes, content_type, http_status)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-              [
-                randomUUID(),
-                labId,
-                String(request.headers['x-webhook-lab-run-id'] || '').slice(0, 100),
-                body.toString('base64'),
-                body.length,
-                request.headers['content-type'] || null,
-                status,
-              ],
-            );
-            return { config, status, size: body.length };
+            return acceptMock(tx, rows[0], request.body || Buffer.alloc(0), {
+              runId: String(request.headers['x-webhook-lab-run-id'] || '').slice(0, 100),
+              contentType: request.headers['content-type'] || null,
+            });
           });
           if (result.config.delay_ms) await delay(result.config.delay_ms);
-          return reply.code(result.status).send({
-            received: true,
-            attempt: result.config.received_count,
-            size_bytes: result.size,
-            message:
-              result.status === 200
-                ? 'Mock receiver accepted the body.'
-                : 'Configured mock failure.',
-          });
+          return reply.code(result.status).send(result.response);
         },
       );
     },
