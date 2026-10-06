@@ -1,6 +1,6 @@
 # Ξεκινώντας με το Webhook Lab
 
-Αυτή είναι η πρώτη έκδοση: παραλαβή webhook, αποθήκευση και προβολή στο dashboard. Όλος ο κώδικας είναι JavaScript. Τα αρχεία `.jsx` είναι JavaScript με σύνταξη JSX για τα React components.
+Το τοπικό MVP υποστηρίζει παραλαβή, αποθήκευση, προβολή και manual replay σε ενσωματωμένο mock receiver. Όλος ο κώδικας είναι JavaScript. Τα αρχεία `.jsx` είναι JavaScript με σύνταξη JSX για τα React components.
 
 ## Εκκίνηση
 
@@ -18,7 +18,7 @@ npm run dev
 ## Πώς να διαβάσεις τον κώδικα
 
 1. Ξεκίνα από το `server/index.js`: ανοίγει τη βάση και ξεκινάει τον server.
-2. Δες το `server/schema.sql`: το `labs` κρατάει τα endpoints, το `captured_requests` κάθε request.
+2. Δες το `server/schema.sql` και τα αριθμημένα upgrades στο `server/migrations.js`: `labs` για endpoints, `captured_requests` για captures, `replay_runs` για προσπάθειες και `mock_receivers` / `mock_receipts` για τα πειράματα.
 3. Στο `server/app.js`, βρες το route `/hooks/:token`. Διαβάζει bytes, βρίσκει το lab και καλεί το `saveCapture`.
 4. Στο `server/capture.js`, δες πώς εξάγουμε `id` και `type` από το JSON και αποθηκεύουμε το body.
 5. Στο `web/src/App.jsx`, το React φορτώνει τα δεδομένα από το API και ενημερώνει το inbox κάθε 2.5 δευτερόλεπτα.
@@ -27,7 +27,15 @@ npm run dev
 
 Στείλε δύο φορές το ίδιο JSON με ίδιο `id`. Θα δεις δύο ξεχωριστά requests με την ένδειξη **Repeated ×2**. Το Lab αποθηκεύει και τα δύο, ώστε να μπορείς να εξετάσεις τι πραγματικά παραδόθηκε.
 
-Το `202` σημαίνει ότι το request αποθηκεύτηκε. Η επόμενη έκδοση θα προσθέσει replay, worker και σενάρια αποτυχίας.
+Το `202` σημαίνει ότι το request αποθηκεύτηκε. Δεν εκτελεί πληρωμές.
+
+Επίλεξε το capture και πάτησε **Replay original body**. Τα αρχικά bytes στέλνονται με πραγματικό HTTP στον mock receiver. Κάθε πάτημα δημιουργεί ξεχωριστή προσπάθεια με status, διάρκεια και response.
+
+Στο **Receiver behavior**, βάλε **Fail first N requests = 1** και πάτησε **Save & reset receiver**. Κάνε δύο replays: πρώτα θα δεις HTTP 500, μετά HTTP 200. Για timeout, αποθήκευσε delay 3000 ms και κράτησε timeout 2000 ms. Ο receiver μπορεί να έχει ήδη παραλάβει το body όταν σταματήσει να περιμένει ο αποστολέας. Δεν κάνουμε αυτόματο retry.
+
+Το ιστορικό και οι ρυθμίσεις διατηρούνται μετά την επανεκκίνηση. Με **Clear inbox**, πληκτρολόγησε το όνομα του lab για να διαγράψεις τα captures, το replay history και τα mock receipts αυτού του lab. Το endpoint και οι ρυθμίσεις μένουν, ενώ ο μετρητής του receiver μηδενίζεται.
+
+Το `server/replay.js` υλοποιεί τη ροή και το `web/src/ReplayPanel.jsx` τα controls. Authentication, arbitrary receiver URLs, Redis/BullMQ και αυτόματα retries μένουν για επόμενο στάδιο.
 
 ## Έλεγχοι
 

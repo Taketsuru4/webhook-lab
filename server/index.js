@@ -22,7 +22,7 @@ process.on('SIGTERM', shutdown);
 
 try {
   await app.listen({ port, host });
-  app.log.info(`Database: ${database.mode}. Webhook Lab capture milestone is ready.`);
+  app.log.info(`Database: ${database.mode}. Webhook Lab local MVP is ready.`);
 } catch (error) {
   app.log.error(error);
   await shutdown();

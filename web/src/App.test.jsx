@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.jsx';
@@ -44,6 +44,8 @@ function responseFor(path) {
   if (path.startsWith(`/api/labs/${labId}/requests?`)) {
     return { requests: captures, total: captures.length, offset: 0 };
   }
+  if (path.endsWith('/receiver')) return { fail_first: 0, delay_ms: 0, received_count: 0 };
+  if (path.includes('/replays')) return { runs: [], total: 0, offset: 0 };
   const capture = captures.find((item) => detailPath(item) === path);
   if (capture) return capture;
   throw new Error(`Unexpected API path: ${path}`);
@@ -234,5 +236,83 @@ describe('request inspector retry', () => {
     expect(retrySignal.aborted).toBe(true);
     expect(inspector.getByRole('tabpanel').textContent).toContain('second capture body');
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('clear inbox confirmation', () => {
+  beforeEach(() => {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute('open', '');
+    };
+  });
+
+  it('requires the exact lab name and clears selected details after confirmed deletion', async () => {
+    let cleared = false;
+    api.mockImplementation(async (path, options) => {
+      if (options?.method === 'DELETE') {
+        expect(JSON.parse(options.body)).toEqual({ confirm: 'Payment playground' });
+        cleared = true;
+        return { cleared: 2 };
+      }
+      if (cleared && path.includes('/requests?')) return { requests: [], total: 0, offset: 0 };
+      if (cleared && path.endsWith('/stats'))
+        return { total: 0, duplicates: 0, bytes: 0, traffic: [] };
+      return responseFor(path);
+    });
+    const { user, firstRow, inspector } = await openInbox();
+    await user.click(firstRow);
+    await inspector.findByRole('tabpanel');
+    await user.click(screen.getByRole('button', { name: 'Clear inbox' }));
+    const dialog = within(screen.getByRole('dialog'));
+    const deleteButton = dialog.getByRole('button', { name: 'Delete captures & history' });
+    expect(deleteButton.disabled).toBe(true);
+    await user.type(dialog.getByLabelText('Type the lab name to confirm'), 'Wrong lab');
+    expect(deleteButton.disabled).toBe(true);
+    await user.clear(dialog.getByLabelText('Type the lab name to confirm'));
+    await user.type(dialog.getByLabelText('Type the lab name to confirm'), 'Payment playground');
+    await user.click(deleteButton);
+    expect(await screen.findByText('Ready for your first webhook.')).toBeTruthy();
+    expect(inspector.queryByRole('tabpanel')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('keeps an in-flight deletion dialog open when Escape is pressed', async () => {
+    let rejectDelete;
+    api.mockImplementation((path, options) =>
+      options?.method === 'DELETE'
+        ? new Promise((_resolve, reject) => {
+            rejectDelete = reject;
+          })
+        : Promise.resolve(responseFor(path)),
+    );
+    const { user } = await openInbox();
+    await user.click(screen.getByRole('button', { name: 'Clear inbox' }));
+    const dialogElement = screen.getByRole('dialog');
+    const dialog = within(dialogElement);
+    await user.type(dialog.getByLabelText('Type the lab name to confirm'), 'Payment playground');
+    await user.click(dialog.getByRole('button', { name: 'Delete captures & history' }));
+    const cancel = new Event('cancel', { bubbles: true, cancelable: true });
+    fireEvent(dialogElement, cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(screen.getByRole('dialog')).toBe(dialogElement);
+    await act(async () => rejectDelete(new Error('Deletion unavailable')));
+    expect((await dialog.findByRole('alert')).textContent).toContain('Deletion unavailable');
+    expect(dialog.getByRole('button', { name: 'Delete captures & history' }).disabled).toBe(false);
+  });
+
+  it('keeps the confirmation open and lets the user retry a failed deletion', async () => {
+    api.mockImplementation(async (path, options) => {
+      if (options?.method === 'DELETE') throw new Error('Wait for the current replay to finish');
+      return responseFor(path);
+    });
+    const { user } = await openInbox();
+    await user.click(screen.getByRole('button', { name: 'Clear inbox' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.type(dialog.getByLabelText('Type the lab name to confirm'), 'Payment playground');
+    await user.click(dialog.getByRole('button', { name: 'Delete captures & history' }));
+    expect((await dialog.findByRole('alert')).textContent).toContain('current replay');
+    expect(dialog.getByRole('button', { name: 'Delete captures & history' }).disabled).toBe(false);
+    await user.click(dialog.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

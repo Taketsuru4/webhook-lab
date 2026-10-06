@@ -5,6 +5,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { saveCapture } from './capture.js';
+import { registerReplay } from './replay.js';
 
 const uuidSchema = { type: 'string', format: 'uuid' };
 const labParams = { type: 'object', required: ['labId'], properties: { labId: uuidSchema } };
@@ -16,7 +17,12 @@ export async function createApp({
   rateLimiting = true,
   serveWeb = true,
 } = {}) {
-  const app = Fastify({ logger, bodyLimit: 256 * 1024, requestTimeout: 10000 });
+  const app = Fastify({
+    logger,
+    bodyLimit: 256 * 1024,
+    requestTimeout: 10000,
+    ajv: { customOptions: { removeAdditional: false } },
+  });
   if (rateLimiting)
     await app.register(rateLimit, { global: true, max: 300, timeWindow: '1 minute' });
 
@@ -45,7 +51,7 @@ export async function createApp({
 
   app.get('/api/health', async () => {
     await database.query('SELECT 1');
-    return { status: 'ok', database: database.mode, milestone: 'capture' };
+    return { status: 'ok', database: database.mode, milestone: 'local-replay' };
   });
 
   app.get('/api/labs', async () => {
@@ -227,6 +233,8 @@ export async function createApp({
     },
     { prefix: '/hooks' },
   );
+
+  await registerReplay(app, database);
 
   const dist = fileURLToPath(new URL('../dist', import.meta.url));
   if (serveWeb && existsSync(dist)) {

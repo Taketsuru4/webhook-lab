@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { api, curlCommand, formatBytes, jsonPost, sampleEvent } from './api.js';
 import { readInbox } from './polling.js';
+import ReplayPanel from './ReplayPanel.jsx';
 
 function IconButton({ label, children, ...props }) {
   return (
@@ -66,7 +67,10 @@ function Modal({ title, description, children, onClose }) {
     <dialog
       ref={ref}
       className="modal"
-      onCancel={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
       onClose={onClose}
       onClick={(event) => {
         if (event.target === ref.current) {
@@ -94,6 +98,64 @@ function Modal({ title, description, children, onClose }) {
       <p className="muted">{description}</p>
       {children}
     </dialog>
+  );
+}
+
+function ClearInboxModal({ lab, onClose, onCleared }) {
+  const [confirmation, setConfirmation] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api(`/api/labs/${lab.id}/requests`, {
+        ...jsonPost({ confirm: confirmation }),
+        method: 'DELETE',
+      });
+      onCleared(result.cleared);
+      onClose();
+    } catch (failure) {
+      setError(failure.message);
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title="Clear this inbox?"
+      description={`Delete all captures, replay history and mock receipts in “${lab.name}”. The lab endpoint and receiver settings stay available. This cannot be undone.`}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <form onSubmit={submit}>
+        <label className="field-label">
+          Type the lab name to confirm
+          <input
+            required
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            autoComplete="off"
+            disabled={busy}
+          />
+        </label>
+        <p className="muted">{lab.name}</p>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="button secondary" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button className="button danger" disabled={busy || confirmation !== lab.name}>
+            {busy ? 'Clearing…' : 'Delete captures & history'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -262,7 +324,7 @@ function Code({ text }) {
   );
 }
 
-function Inspector({ capture, selectedId, loading, error, onSelect, onRetry, onError }) {
+function Inspector({ capture, labId, selectedId, loading, error, onSelect, onRetry, onError }) {
   const [tab, setTab] = useState('payload');
   function download() {
     const bytes = Uint8Array.from(atob(capture.raw_body_base64), (character) =>
@@ -383,6 +445,7 @@ function Inspector({ capture, selectedId, loading, error, onSelect, onRetry, onE
               Download body
             </button>
           </div>
+          <ReplayPanel key={capture.id} capture={capture} labId={labId} />
         </>
       ) : (
         <div className="inspector-empty">
@@ -488,7 +551,9 @@ function Guide({ lab, onError, onSend }) {
         </div>
         <p>
           Malformed JSON and non-JSON bodies are captured too. Body downloads preserve the original
-          bytes.
+          bytes. Select a capture and use Replay original body. Open Receiver behavior to fail the
+          first request, then replay twice to compare HTTP 500 and 200. Set a response delay above
+          the replay timeout to explore uncertain delivery.
         </p>
       </section>
       <section className="guide-card wide">
@@ -501,14 +566,14 @@ function Guide({ lab, onError, onSend }) {
             <span>Available now</span>
           </div>
           <div>
-            <span className="roadmap-dot" />
-            <strong>Replay & delivery worker</strong>
-            <span>Next milestone</span>
+            <span className="roadmap-dot done" />
+            <strong>Manual replay</strong>
+            <span>Available now</span>
           </div>
           <div>
-            <span className="roadmap-dot" />
-            <strong>Failure scenarios</strong>
-            <span>Planned</span>
+            <span className="roadmap-dot done" />
+            <strong>Mock failures & timeouts</strong>
+            <span>Available now</span>
           </div>
           <div>
             <span className="roadmap-dot" />
@@ -720,9 +785,9 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="next-card">
             <FlaskConical size={20} />
-            <span className="eyebrow">UP NEXT</span>
+            <span className="eyebrow">YOUR NEXT EXPERIMENT</span>
             <strong>Test the unexpected.</strong>
-            <p>Replay, retries, and failure scenarios are the next chapter.</p>
+            <p>Replay a request. Make the receiver fail. See exactly what happened.</p>
             <button onClick={() => setView('guide')}>
               See the roadmap
               <ArrowRight size={13} />
@@ -909,6 +974,15 @@ export default function App() {
                       {!connected ? 'Offline' : live ? 'Live' : 'Paused'}
                     </button>
                   </div>
+                  <div className="inbox-tools-actions">
+                    <button
+                      className="button secondary compact"
+                      disabled={!stats?.total}
+                      onClick={() => setModal('clear')}
+                    >
+                      Clear inbox
+                    </button>
+                  </div>
                   <div className="inbox-toolbar">
                     <div className="search-input">
                       <Search size={15} />
@@ -1060,6 +1134,7 @@ export default function App() {
                 </section>
                 <Inspector
                   capture={capture}
+                  labId={labId}
                   selectedId={selectedId}
                   loading={detailLoading}
                   error={detailError}
@@ -1076,7 +1151,7 @@ export default function App() {
               Built for the moments between “sent” and “received”.
             </span>
             <span>
-              Webhook Lab<span className="footer-separator">/</span>Capture milestone
+              Webhook Lab<span className="footer-separator">/</span>Local MVP
             </span>
           </footer>
         </div>
@@ -1093,6 +1168,22 @@ export default function App() {
             setRevision((value) => value + 1);
             selectRequest(id);
             setNotice('Event captured. Your request is saved and ready to inspect.');
+          }}
+        />
+      )}
+      {modal === 'clear' && lab && (
+        <ClearInboxModal
+          lab={lab}
+          onClose={() => setModal(null)}
+          onCleared={(count) => {
+            selectRequest(null);
+            setData(null);
+            setStats(null);
+            setOffset(0);
+            setQuery('');
+            setFilter('all');
+            setRevision((value) => value + 1);
+            setNotice(`Cleared ${count} captures and their replay history from “${lab.name}”.`);
           }}
         />
       )}
