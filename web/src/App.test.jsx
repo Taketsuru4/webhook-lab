@@ -133,3 +133,106 @@ describe('request inspector selection', () => {
     expect(detailCalls(captures[0])).toBe(2);
   });
 });
+
+describe('request inspector retry', () => {
+  it('retries the same detail request from the error banner and shows loading until recovery', async () => {
+    let attempts = 0;
+    let resolveRetry;
+    const pendingRetry = new Promise((resolve) => {
+      resolveRetry = resolve;
+    });
+    api.mockImplementation((path) => {
+      if (path !== detailPath(captures[0])) return Promise.resolve(responseFor(path));
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new Error('Details unavailable')) : pendingRetry;
+    });
+    const { user, firstRow, inspector } = await openInbox();
+    await user.click(firstRow);
+    const banner = within(await screen.findByRole('alert'));
+    expect(banner.getByText('Details unavailable')).toBeTruthy();
+
+    await user.click(banner.getByRole('button', { name: 'Retry', exact: true }));
+
+    expect(detailCalls(captures[0])).toBe(2);
+    expect(inspector.getByText('Loading request…')).toBeTruthy();
+    await act(async () => resolveRetry(captures[0]));
+    expect((await inspector.findByRole('tabpanel')).textContent).toContain('first capture body');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps an actionable inspector error when a retry also fails', async () => {
+    let attempts = 0;
+    api.mockImplementation(async (path) => {
+      if (path === detailPath(captures[0])) {
+        attempts += 1;
+        if (attempts < 3) throw new Error(`Details failed, attempt ${attempts}`);
+      }
+      return responseFor(path);
+    });
+    const { user, firstRow, inspector } = await openInbox();
+    await user.click(firstRow);
+    await inspector.findByText('Details failed, attempt 1');
+
+    await user.click(inspector.getByRole('button', { name: 'Retry request' }));
+
+    expect(await inspector.findByText('Details failed, attempt 2')).toBeTruthy();
+    expect(inspector.queryByText('Loading request…')).toBeNull();
+    await user.click(inspector.getByRole('button', { name: 'Retry request' }));
+    expect((await inspector.findByRole('tabpanel')).textContent).toContain('first capture body');
+    expect(detailCalls(captures[0])).toBe(3);
+  });
+
+  it('does not refetch loaded details when Retry is recovering the inbox connection', async () => {
+    let statsUnavailable = false;
+    api.mockImplementation(async (path) => {
+      if (path === `/api/labs/${labId}/stats` && statsUnavailable) {
+        throw new Error('Stats unavailable');
+      }
+      return responseFor(path);
+    });
+    const { user, firstRow, inspector } = await openInbox();
+    await user.click(firstRow);
+    await inspector.findByRole('tabpanel');
+    await user.click(screen.getByRole('button', { name: 'Live', exact: true }));
+    const paused = await screen.findByRole('button', { name: 'Paused', exact: true });
+    statsUnavailable = true;
+    await user.click(paused);
+    const banner = within(await screen.findByRole('alert'));
+    expect(banner.getByText('Stats unavailable')).toBeTruthy();
+
+    statsUnavailable = false;
+    await user.click(banner.getByRole('button', { name: 'Retry', exact: true }));
+
+    await screen.findByRole('button', { name: 'Live', exact: true });
+    expect(inspector.getByRole('tabpanel').textContent).toContain('first capture body');
+    expect(detailCalls(captures[0])).toBe(1);
+  });
+
+  it('ignores a late retry response after a different request is selected', async () => {
+    let attempts = 0;
+    let resolveRetry;
+    let retrySignal;
+    const pendingRetry = new Promise((resolve) => {
+      resolveRetry = resolve;
+    });
+    api.mockImplementation((path, options) => {
+      if (path !== detailPath(captures[0])) return Promise.resolve(responseFor(path));
+      attempts += 1;
+      if (attempts === 1) return Promise.reject(new Error('Details unavailable'));
+      retrySignal = options.signal;
+      return pendingRetry;
+    });
+    const { user, firstRow, secondRow, inspector } = await openInbox();
+    await user.click(firstRow);
+    const banner = within(await screen.findByRole('alert'));
+    await user.click(banner.getByRole('button', { name: 'Retry', exact: true }));
+    await user.click(secondRow);
+    expect((await inspector.findByRole('tabpanel')).textContent).toContain('second capture body');
+
+    await act(async () => resolveRetry(captures[0]));
+
+    expect(retrySignal.aborted).toBe(true);
+    expect(inspector.getByRole('tabpanel').textContent).toContain('second capture body');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});

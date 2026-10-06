@@ -261,7 +261,7 @@ function Code({ text }) {
   );
 }
 
-function Inspector({ capture, selectedId, loading, onSelect, onError }) {
+function Inspector({ capture, selectedId, loading, error, onSelect, onRetry, onError }) {
   const [tab, setTab] = useState('payload');
   function download() {
     const bytes = Uint8Array.from(atob(capture.raw_body_base64), (character) =>
@@ -385,7 +385,10 @@ function Inspector({ capture, selectedId, loading, onSelect, onError }) {
         </>
       ) : (
         <div className="inspector-empty">
-          <p>Could not load this request.</p>
+          <p>{error || 'Could not load this request.'}</p>
+          <button className="button secondary" onClick={onRetry}>
+            Retry request
+          </button>
           <button className="button secondary" onClick={() => onSelect(null)}>
             Close inspector
           </button>
@@ -538,12 +541,14 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [capture, setCapture] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const [detailRevision, setDetailRevision] = useState(0);
   const [live, setLive] = useState(true);
   const [connected, setConnected] = useState(false);
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState('');
   const lab = labs.find((item) => item.id === labId);
-  const displayedError = error || connectionError;
+  const displayedError = detailError || error || connectionError;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -605,17 +610,17 @@ export default function App() {
     const controller = new AbortController();
     api(`/api/labs/${labId}/requests/${selectedId}`, { signal: controller.signal })
       .then((result) => {
+        if (controller.signal.aborted) return;
         setCapture(result);
         setDetailLoading(false);
       })
       .catch((err) => {
-        if (err.name !== 'AbortError') {
-          setError(err.message);
-          setDetailLoading(false);
-        }
+        if (controller.signal.aborted || err.name === 'AbortError') return;
+        setDetailError(err.message);
+        setDetailLoading(false);
       });
     return () => controller.abort();
-  }, [selectedId, labId]);
+  }, [selectedId, labId, detailRevision]);
 
   useEffect(() => {
     if (!notice) return;
@@ -627,11 +632,20 @@ export default function App() {
     (id) => {
       if (id === selectedId) return;
       setCapture(null);
+      setDetailError('');
       setSelectedId(id);
       setDetailLoading(Boolean(id));
     },
     [selectedId],
   );
+
+  function retryCapture() {
+    if (!selectedId || !labId || detailLoading) return;
+    setCapture(null);
+    setDetailError('');
+    setDetailLoading(true);
+    setDetailRevision((value) => value + 1);
+  }
 
   function chooseLab(id) {
     if (id === labId) return;
@@ -785,6 +799,10 @@ export default function App() {
               <button
                 className="button secondary compact"
                 onClick={() => {
+                  if (detailError) {
+                    retryCapture();
+                    return;
+                  }
                   setError('');
                   setConnectionError('');
                   setRevision((value) => value + 1);
@@ -796,6 +814,7 @@ export default function App() {
               <IconButton
                 label="Dismiss error"
                 onClick={() => {
+                  setDetailError('');
                   setError('');
                   setConnectionError('');
                 }}
@@ -1045,7 +1064,9 @@ export default function App() {
                   capture={capture}
                   selectedId={selectedId}
                   loading={detailLoading}
+                  error={detailError}
                   onSelect={selectRequest}
+                  onRetry={retryCapture}
                   onError={setError}
                 />
               </div>
