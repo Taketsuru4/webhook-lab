@@ -12,11 +12,11 @@ export function redactHeaders(headers) {
   );
 }
 
-function metadataText(value, maxLength, fallback) {
-  // PostgreSQL text cannot store NUL. Check the complete value before truncation.
-  // Keep unsupported metadata unavailable without modifying the original body.
-  if (typeof value !== 'string' || value.includes('\u0000')) return fallback;
-  return value.slice(0, maxLength);
+function metadataText(value, fallback) {
+  // Unsupported text stays unavailable; original body bytes are always retained.
+  if (typeof value !== 'string' || value.includes('\u0000') || !value.isWellFormed())
+    return fallback;
+  return value;
 }
 
 export function describeBody(body) {
@@ -28,8 +28,8 @@ export function describeBody(body) {
   }
   const object = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
   return {
-    eventId: metadataText(object.id, 200, null),
-    eventType: metadataText(object.type, 120, 'untyped'),
+    eventId: metadataText(object.id, null),
+    eventType: metadataText(object.type, 'untyped'),
   };
 }
 

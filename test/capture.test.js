@@ -98,7 +98,7 @@ describe('Webhook capture API', () => {
     assert.equal(record.event_type, 'test.event');
   });
 
-  it('checks complete metadata for NUL before applying its length limit', async () => {
+  it('checks NUL characters beyond the former metadata length limits', async () => {
     for (const payload of [
       { id: `${'a'.repeat(200)}\u0000suffix`, type: 'test.event' },
       { id: 'evt_safe', type: `${'a'.repeat(120)}\u0000suffix` },
@@ -163,6 +163,44 @@ describe('Webhook capture API', () => {
         .statusCode,
       404,
     );
+  });
+
+  it('keeps long provider IDs distinct and detects actual repeated long IDs', async () => {
+    const prefix = 'a'.repeat(200);
+    for (const id of [
+      `${prefix}_long_suffix_one`,
+      `${prefix}_long_suffix_two`,
+      `${prefix}_long_suffix_one`,
+    ]) {
+      assert.equal((await send(JSON.stringify({ id, type: 'test.event' }))).statusCode, 202);
+    }
+    const requests = (await app.inject(inbox)).json();
+    assert.equal(
+      requests.requests.filter((item) => item.event_id === `${prefix}_long_suffix_one`).length,
+      2,
+    );
+    assert.equal(
+      requests.requests.find((item) => item.event_id === `${prefix}_long_suffix_two`).occurrences,
+      1,
+    );
+    assert.equal((await app.inject(`${inbox}?filter=duplicates`)).json().total, 2);
+    assert.equal((await app.inject(`/api/labs/${defaultLabId}/stats`)).json().duplicates, 1);
+    assert.equal(
+      (await app.inject(`${inbox}?q=${encodeURIComponent('_long_suffix_one')}`)).json().total,
+      2,
+    );
+  });
+
+  it('captures large incompressible IDs without exceeding index limits', async () => {
+    const { randomBytes } = await import('node:crypto');
+    const id = randomBytes(8000).toString('hex');
+    const body = JSON.stringify({ id, type: `event.${'x'.repeat(130)}` });
+    const response = await send(body);
+    assert.equal(response.statusCode, 202);
+    const record = (await app.inject(`${inbox}/${response.json().request_id}`)).json();
+    assert.equal(record.event_id, id);
+    assert.equal(record.event_type, JSON.parse(body).type);
+    assert.deepEqual(Buffer.from(record.raw_body_base64, 'base64'), Buffer.from(body));
   });
 
   it('redacts common credentials while retaining non-secret headers', async () => {

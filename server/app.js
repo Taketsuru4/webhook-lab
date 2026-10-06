@@ -109,7 +109,7 @@ export async function createApp({
       if (filter === 'untyped') conditions.push("r.event_type = 'untyped'");
       if (filter === 'duplicates')
         conditions.push(
-          '(SELECT count(*) FROM captured_requests d WHERE d.lab_id = r.lab_id AND d.event_id = r.event_id) > 1',
+          '(SELECT count(*) FROM captured_requests d WHERE d.lab_id = r.lab_id AND md5(d.event_id) = md5(r.event_id) AND d.event_id = r.event_id) > 1',
         );
       const where = conditions.join(' AND ');
       const { rows: counts } = await database.query(
@@ -121,7 +121,7 @@ export async function createApp({
         `
       SELECT r.id, r.event_id, r.event_type, r.received_at, r.size_bytes, r.content_type,
         CASE WHEN r.event_id IS NULL THEN 1 ELSE
-          (SELECT count(*)::int FROM captured_requests d WHERE d.lab_id = r.lab_id AND d.event_id = r.event_id)
+          (SELECT count(*)::int FROM captured_requests d WHERE d.lab_id = r.lab_id AND md5(d.event_id) = md5(r.event_id) AND d.event_id = r.event_id)
         END AS occurrences
       FROM captured_requests r WHERE ${where}
       ORDER BY r.received_at DESC, r.id DESC LIMIT 50 OFFSET $${params.length}

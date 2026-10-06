@@ -84,7 +84,7 @@ flowchart LR
     Management --> DB
 ```
 
-The capture route has its own raw-buffer content parser. Management routes keep normal JSON validation. The API persists a request before acknowledging receipt, and the UI polls the API without overlapping refreshes.
+The capture route has its own raw-buffer content parser. Management routes keep normal JSON validation. The API persists a request before acknowledging receipt. Each polling attempt cancels and drains its paired reads on failure, with a 10-second deadline, before scheduling another refresh.
 
 | File                   | Responsibility                                    |
 | ---------------------- | ------------------------------------------------- |
@@ -92,7 +92,8 @@ The capture route has its own raw-buffer content parser. Management routes keep 
 | `server/app.js`        | Routes, validation, limits, capture parser        |
 | `server/capture.js`    | Event metadata, header redaction, request storage |
 | `server/database.js`   | Embedded and external database adapters           |
-| `server/schema.sql`    | Tables and indexes                                |
+| `server/schema.sql`    | Original capture schema                           |
+| `server/migrations.js` | Versioned schema upgrades and metadata recovery   |
 | `web/src/App.jsx`      | Dashboard, inspector, sample sender, labs         |
 | `web/src/api.js`       | HTTP helper, sample events, curl quoting          |
 | `test/capture.test.js` | API, concurrency, failure, and persistence tests  |
@@ -125,7 +126,7 @@ This is a **local, single-user** tool. Management endpoints have no authenticati
 
 Bodies are limited to 256 KiB. Common credential headers (`Authorization`, cookies, API keys, and common token headers) are redacted before storage. Payloads and arbitrary custom headers can still contain sensitive data; use synthetic data while experimenting. Raw text previews decode bytes as UTF-8, while downloaded bodies preserve the original bytes.
 
-An event is identified only by top-level string fields `id` and `type`. If either field contains U+0000 (NUL), its metadata falls back to an absent ID or `untyped` type because PostgreSQL text cannot store that character. The other supported field, original body bytes, and parsed payload are retained; unsupported IDs are not rewritten or grouped as duplicates. Repeated-ID badges indicate repeated provider IDs within one lab, not semantic equivalence of arbitrary payloads. Requests without IDs count individually. Captures have no automatic expiry yet. Pagination uses offsets, so the visible pages can shift as live requests arrive; pause the sender for stable historical browsing.
+An event is identified only by complete top-level string fields `id` and `type`. NUL characters or unpaired UTF-16 surrogates make that field unavailable as metadata (absent ID or `untyped` type); the original body and parsed payload remain available. Full IDs are compared for duplicates, with a digest index narrowing candidates without imposing the B-tree key-size limit on the ID itself. Startup migrations restore previously truncated metadata from original bodies and record applied versions. Repeated-ID badges indicate repeated provider IDs within one lab, not semantic equivalence of arbitrary payloads. Requests without IDs count individually. Captures have no automatic expiry yet. Pagination uses offsets, so the visible pages can shift as live requests arrive; pause the sender for stable historical browsing.
 
 ## Roadmap
 
