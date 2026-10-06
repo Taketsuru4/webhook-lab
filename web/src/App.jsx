@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, curlCommand, formatBytes, jsonPost, sampleEvent } from './api.js';
+import { readInbox } from './polling.js';
 
 function IconButton({ label, children, ...props }) {
   return (
@@ -581,10 +582,7 @@ export default function App() {
     async function refresh() {
       try {
         const params = new URLSearchParams({ q: deferredQuery, filter, offset });
-        const [requests, metrics] = await Promise.all([
-          api(`/api/labs/${labId}/requests?${params}`, { signal: controller.signal }),
-          api(`/api/labs/${labId}/stats`, { signal: controller.signal }),
-        ]);
+        const [requests, metrics] = await readInbox(labId, params, controller.signal);
         if (controller.signal.aborted) return;
         setData(requests);
         setStats(metrics);

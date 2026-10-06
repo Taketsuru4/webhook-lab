@@ -24,11 +24,11 @@ Successful capture returns 202 after the INSERT completes. A failed INSERT retur
 
 An external PostgreSQL connection uses `pg.Pool`. The default development path uses file-backed PGlite, an embedded PostgreSQL WASM build. Both execute the same SQL schema and parameterized queries. PGlite permits quick local setup, but only a single application process should access its data directory.
 
-The test suite runs locally against embedded PostgreSQL and is configured in CI for a real PostgreSQL service too. Database initialization is idempotent for the current schema. Introduce numbered migrations before making schema changes.
+The test suite runs locally against embedded PostgreSQL and is configured in CI for a real PostgreSQL service too. Startup applies numbered migrations in a transaction under a PostgreSQL advisory lock. Version 1 adopts the original schema; version 2 rebuilds complete metadata from captured bodies and replaces the provider-ID index. Applied versions are recorded, so upgrades preserve captures and repeated startup is idempotent.
 
 ## Indexing and refresh
 
-Indexes support per-lab reverse-chronological listing and provider-ID duplicate lookups. Search uses parameterized ILIKE with escaped wildcard characters. The small local workload does not need a cache. The dashboard issues two polling reads every 2.5 seconds, awaits both, and cancels stale requests when changing labs or filters.
+Indexes support per-lab reverse-chronological listing and provider-ID duplicate lookups. IDs are stored in full; a fixed-size digest index narrows candidates and exact ID equality prevents hash collisions from merging events. Unsupported PostgreSQL text (NUL or unpaired UTF-16 surrogates) is unavailable as metadata, with original bytes retained. Search uses parameterized ILIKE with escaped wildcard characters. The small local workload does not need a cache. The dashboard issues two polling reads every 2.5 seconds, cancels a sibling read on failure, and drains both before scheduling another attempt. A 10-second deadline handles stalled reads; lab/filter changes cancel obsolete requests.
 
 Offset pagination keeps the API easy to understand but can shift under continuous writes. Cursor pagination and computed duplicate aggregates would be the first database improvements for a high-volume inbox. A hosted deployment would also need retention, storage quotas, and authentication.
 

@@ -1,7 +1,8 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
+import { runMigrations } from './migrations.js';
 
 export async function openDatabase({
   url = process.env.DATABASE_URL,
@@ -13,6 +14,20 @@ export async function openDatabase({
     database = {
       mode: 'postgres',
       query: (sql, params = []) => pool.query(sql, params),
+      async transaction(callback) {
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const result = await callback({ query: (sql, params = []) => client.query(sql, params) });
+          await client.query('COMMIT');
+          return result;
+        } catch (error) {
+          await client.query('ROLLBACK');
+          throw error;
+        } finally {
+          client.release();
+        }
+      },
       close: () => pool.end(),
     };
   } else {
@@ -22,15 +37,15 @@ export async function openDatabase({
     database = {
       mode: 'embedded',
       query: (sql, params = []) => instance.query(sql, params),
+      transaction: (callback) =>
+        instance.transaction((tx) =>
+          callback({ query: (sql, params = []) => tx.query(sql, params) }),
+        ),
       close: () => instance.close(),
     };
   }
   try {
-    const schema = await readFile(new URL('./schema.sql', import.meta.url), 'utf8');
-    // Both drivers support the same SQL. Separate statements for PGlite's query API.
-    for (const statement of schema.split(';').filter((part) => part.trim())) {
-      await database.query(statement);
-    }
+    await runMigrations(database);
     return database;
   } catch (error) {
     await database.close();
