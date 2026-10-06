@@ -167,15 +167,28 @@ describe('Webhook capture API', () => {
 
   it('keeps long provider IDs distinct and detects actual repeated long IDs', async () => {
     const prefix = 'a'.repeat(200);
-    for (const id of [`${prefix}1`, `${prefix}2`, `${prefix}1`]) {
+    for (const id of [
+      `${prefix}_long_suffix_one`,
+      `${prefix}_long_suffix_two`,
+      `${prefix}_long_suffix_one`,
+    ]) {
       assert.equal((await send(JSON.stringify({ id, type: 'test.event' }))).statusCode, 202);
     }
     const requests = (await app.inject(inbox)).json();
-    assert.equal(requests.requests.filter((item) => item.event_id === `${prefix}1`).length, 2);
-    assert.equal(requests.requests.find((item) => item.event_id === `${prefix}2`).occurrences, 1);
+    assert.equal(
+      requests.requests.filter((item) => item.event_id === `${prefix}_long_suffix_one`).length,
+      2,
+    );
+    assert.equal(
+      requests.requests.find((item) => item.event_id === `${prefix}_long_suffix_two`).occurrences,
+      1,
+    );
     assert.equal((await app.inject(`${inbox}?filter=duplicates`)).json().total, 2);
     assert.equal((await app.inject(`/api/labs/${defaultLabId}/stats`)).json().duplicates, 1);
-    assert.equal((await app.inject(`${inbox}?q=${encodeURIComponent('a1')}`)).json().total, 2);
+    assert.equal(
+      (await app.inject(`${inbox}?q=${encodeURIComponent('_long_suffix_one')}`)).json().total,
+      2,
+    );
   });
 
   it('captures large incompressible IDs without exceeding index limits', async () => {
