@@ -125,7 +125,7 @@ This is a **local, single-user** tool. Management endpoints have no authenticati
 
 Bodies are limited to 256 KiB. Common credential headers (`Authorization`, cookies, API keys, and common token headers) are redacted before storage. Payloads and arbitrary custom headers can still contain sensitive data; use synthetic data while experimenting. Raw text previews decode bytes as UTF-8, while downloaded bodies preserve the original bytes.
 
-An event is identified only by top-level string fields `id` and `type`. Repeated-ID badges indicate repeated provider IDs within one lab, not semantic equivalence of arbitrary payloads. Requests without IDs count individually. Captures have no automatic expiry yet. Pagination uses offsets, so the visible pages can shift as live requests arrive; pause the sender for stable historical browsing.
+An event is identified only by top-level string fields `id` and `type`. If either field contains U+0000 (NUL), its metadata falls back to an absent ID or `untyped` type because PostgreSQL text cannot store that character. The other supported field, original body bytes, and parsed payload are retained; unsupported IDs are not rewritten or grouped as duplicates. Repeated-ID badges indicate repeated provider IDs within one lab, not semantic equivalence of arbitrary payloads. Requests without IDs count individually. Captures have no automatic expiry yet. Pagination uses offsets, so the visible pages can shift as live requests arrive; pause the sender for stable historical browsing.
 
 ## Roadmap
 

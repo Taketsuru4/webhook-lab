@@ -71,6 +71,66 @@ describe('Webhook capture API', () => {
     }
   });
 
+  it('preserves valid JSON bodies when NUL metadata cannot be stored as text', async () => {
+    for (const [payload, eventId, eventType] of [
+      [{ id: 'evt_\u0000unsafe', type: 'payment.succeeded' }, null, 'payment.succeeded'],
+      [{ id: 'evt_safe', type: 'payment.\u0000succeeded' }, 'evt_safe', 'untyped'],
+      [{ id: '\u0000', type: '\u0000' }, null, 'untyped'],
+    ]) {
+      const body = `\n  ${JSON.stringify({ ...payload, customer: 'Φοίβος ☕' })}\n`;
+      const result = await send(body);
+      assert.equal(result.statusCode, 202);
+      const detail = await app.inject(`${inbox}/${result.json().request_id}`);
+      assert.equal(detail.statusCode, 200);
+      const record = detail.json();
+      assert.equal(record.event_id, eventId);
+      assert.equal(record.event_type, eventType);
+      assert.equal(record.is_json, true);
+      assert.deepEqual(record.payload, JSON.parse(body));
+      assert.equal(record.raw_body, body);
+      assert.deepEqual(Buffer.from(record.raw_body_base64, 'base64'), Buffer.from(body));
+      assert.equal(record.size_bytes, Buffer.byteLength(body));
+    }
+    const ordinary = await send('{"id":"evt_after_nul","type":"test.event"}');
+    assert.equal(ordinary.statusCode, 202);
+    const record = (await app.inject(`${inbox}/${ordinary.json().request_id}`)).json();
+    assert.equal(record.event_id, 'evt_after_nul');
+    assert.equal(record.event_type, 'test.event');
+  });
+
+  it('checks complete metadata for NUL before applying its length limit', async () => {
+    for (const payload of [
+      { id: `${'a'.repeat(200)}\u0000suffix`, type: 'test.event' },
+      { id: 'evt_safe', type: `${'a'.repeat(120)}\u0000suffix` },
+    ]) {
+      const body = JSON.stringify(payload);
+      const result = await send(body);
+      assert.equal(result.statusCode, 202);
+      const record = (await app.inject(`${inbox}/${result.json().request_id}`)).json();
+      assert.equal(record.event_id, payload.id.includes('\u0000') ? null : payload.id);
+      assert.equal(record.event_type, payload.type.includes('\u0000') ? 'untyped' : payload.type);
+      assert.deepEqual(Buffer.from(record.raw_body_base64, 'base64'), Buffer.from(body));
+    }
+  });
+
+  it('does not invent duplicate identities by stripping NUL from event IDs', async () => {
+    const unsafe = JSON.stringify({ id: 'evt_\u0000same', type: 'test.event' });
+    const responses = await Promise.all([
+      send(unsafe),
+      send(unsafe),
+      send('{"id":"evt_same","type":"test.event"}'),
+    ]);
+    assert.ok(responses.every((response) => response.statusCode === 202));
+    const requests = (await app.inject(inbox)).json();
+    assert.equal(requests.total, 3);
+    assert.equal(requests.requests.filter((item) => item.event_id === null).length, 2);
+    assert.ok(requests.requests.every((item) => item.occurrences === 1));
+    assert.equal((await app.inject(`${inbox}?filter=duplicates`)).json().total, 0);
+    const stats = (await app.inject(`/api/labs/${defaultLabId}/stats`)).json();
+    assert.equal(stats.total, 3);
+    assert.equal(stats.duplicates, 0);
+  });
+
   it('stores every concurrent duplicate and scopes occurrences to each lab', async () => {
     const body = JSON.stringify({ id: 'evt_duplicate', type: 'payment.succeeded' });
     const responses = await Promise.all(Array.from({ length: 5 }, () => send(body)));
