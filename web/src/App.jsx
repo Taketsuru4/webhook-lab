@@ -623,11 +623,15 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  const selectRequest = useCallback((id) => {
-    setCapture(null);
-    setSelectedId(id);
-    setDetailLoading(Boolean(id));
-  }, []);
+  const selectRequest = useCallback(
+    (id) => {
+      if (id === selectedId) return;
+      setCapture(null);
+      setSelectedId(id);
+      setDetailLoading(Boolean(id));
+    },
+    [selectedId],
+  );
 
   function chooseLab(id) {
     if (id === labId) return;
