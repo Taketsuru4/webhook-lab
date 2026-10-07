@@ -580,6 +580,11 @@ function Guide({ lab, onError, onSend }) {
             <strong>Idempotency demo</strong>
             <span>Available now</span>
           </div>
+          <div>
+            <span className="roadmap-dot done" />
+            <strong>Background retries</strong>
+            <span>Available now</span>
+          </div>
         </div>
         <p className="muted">
           This version runs as a local, single-user tool. The management API has no authentication;

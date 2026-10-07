@@ -1958,3 +1958,31 @@ button {
 .receiver-outcome {
   font-weight: 600;
 }
+
+.job-panel {
+  margin: 20px 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.job-panel .replay-heading h3 {
+  margin: 0;
+}
+.job-panel .muted {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.job-attempts {
+  display: grid;
+  gap: 12px;
+  padding-left: 18px;
+  margin-top: 12px;
+}
+.job-attempts li > span {
+  display: block;
+  color: var(--muted);
+  margin: 4px 0;
+}
+.replay-result.cancelled,
+.replay-result.waiting_retry {
+  border-left-color: #9c8469;
+}

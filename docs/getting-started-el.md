@@ -39,7 +39,13 @@ npm run dev
 
 Οι μετρητές **Demo actions processed**, **Duplicates skipped** και **Key conflicts** δείχνουν τι έγινε στον receiver. Δεν εκτελούνται πραγματικές πληρωμές. Το `server/receiver.js` γράφει receipt, key και demo action μέσα στην ίδια συναλλαγή.
 
-Authentication, arbitrary receiver URLs, Redis/BullMQ και αυτόματα retries μένουν για επόμενο στάδιο.
+Για αυτόματα retries, αποθήκευσε **Fail first N requests = 2** και πάτησε **Queue delivery** με 3 maximum attempts. Το ιστορικό θα δείξει 500, 500, 200. Το πρώτο retry delay διπλασιάζεται μέχρι 5 δευτερόλεπτα, ενώ το όριο προσπαθειών περιλαμβάνει την αρχική αποστολή. Τα jobs και τα αποτελέσματα διατηρούνται στη βάση μετά από restart.
+
+Το **Stop retries** σταματά μελλοντικές προσπάθειες. Αν υπάρχει αποστολή σε εξέλιξη, πρώτα καταγράφεται το αποτέλεσμά της. Δεν αναιρείται κάτι που έγινε ήδη στον receiver. Όσο υπάρχει ενεργό job δεν αλλάζουμε τις ρυθμίσεις του receiver και δεν καθαρίζουμε το inbox.
+
+Το `server/jobs.js` έχει τον τοπικό worker και τη durable ουρά στη βάση· το `web/src/JobPanel.jsx` τη νέα προβολή. Μετά από διακοπή μπορεί να γίνει νέα προσπάθεια για αβέβαιη παράδοση: η προστασία duplicates παραμένει στον receiver, όχι στην ουρά.
+
+Authentication, arbitrary receiver URLs και ξεχωριστός Redis/BullMQ worker μένουν για επόμενο στάδιο.
 
 ## Έλεγχοι
 

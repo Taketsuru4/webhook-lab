@@ -97,6 +97,40 @@ const migrations = [
       );
     },
   },
+  {
+    version: 5,
+    name: 'durable_local_delivery_jobs',
+    async up(tx) {
+      await tx.query(`CREATE TABLE delivery_jobs (
+        id UUID PRIMARY KEY, lab_id UUID NOT NULL REFERENCES labs(id) ON DELETE CASCADE,
+        capture_id UUID NOT NULL REFERENCES captured_requests(id) ON DELETE CASCADE,
+        state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued','running','waiting_retry','succeeded','failed','cancelled')),
+        max_attempts INTEGER NOT NULL CHECK (max_attempts BETWEEN 1 AND 5),
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        timeout_ms INTEGER NOT NULL CHECK (timeout_ms BETWEEN 100 AND 10000),
+        retry_delay_ms INTEGER NOT NULL CHECK (retry_delay_ms BETWEEN 250 AND 5000),
+        next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(), lease_started_at TIMESTAMPTZ,
+        cancel_requested BOOLEAN NOT NULL DEFAULT false, last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ
+      )`);
+      await tx.query(
+        "CREATE UNIQUE INDEX one_active_job_per_lab_idx ON delivery_jobs (lab_id) WHERE state IN ('queued','running','waiting_retry')",
+      );
+      await tx.query(
+        "CREATE INDEX jobs_due_idx ON delivery_jobs (next_attempt_at, id) WHERE state IN ('queued','waiting_retry')",
+      );
+      await tx.query(
+        'CREATE INDEX jobs_capture_time_idx ON delivery_jobs (lab_id, capture_id, created_at DESC, id DESC)',
+      );
+      await tx.query(
+        'ALTER TABLE replay_runs ADD COLUMN delivery_job_id UUID REFERENCES delivery_jobs(id) ON DELETE CASCADE',
+      );
+      await tx.query('ALTER TABLE replay_runs ADD COLUMN attempt_number INTEGER');
+      await tx.query(
+        'CREATE UNIQUE INDEX attempts_job_number_idx ON replay_runs (delivery_job_id, attempt_number)',
+      );
+    },
+  },
 ];
 
 export async function runMigrations(database) {
