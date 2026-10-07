@@ -22,6 +22,7 @@ beforeEach(() => {
   receiver = { fail_first: 1, delay_ms: 0, received_count: 0 };
   runs = [];
   api.mockImplementation(async (path, options) => {
+    if (path.includes('/jobs')) return { jobs: [], total: 0, offset: 0 };
     if (path.endsWith('/receiver')) {
       if (options?.method === 'PUT') receiver = { ...JSON.parse(options.body), received_count: 0 };
       return receiver;

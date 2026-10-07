@@ -16,11 +16,13 @@ export async function createApp({
   origin = 'http://localhost:4310',
   rateLimiting = true,
   serveWeb = true,
+  deliveryWorker = true,
 } = {}) {
   const app = Fastify({
     logger,
     bodyLimit: 256 * 1024,
     requestTimeout: 10000,
+    connectionTimeout: 10000,
     ajv: { customOptions: { removeAdditional: false } },
   });
   if (rateLimiting)
@@ -234,7 +236,7 @@ export async function createApp({
     { prefix: '/hooks' },
   );
 
-  await registerReplay(app, database);
+  await registerReplay(app, database, { workerEnabled: deliveryWorker });
 
   const dist = fileURLToPath(new URL('../dist', import.meta.url));
   if (serveWeb && existsSync(dist)) {

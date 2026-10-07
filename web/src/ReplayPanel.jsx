@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, RefreshCw, RotateCcw } from 'lucide-react';
 import { api, jsonPost } from './api.js';
+import JobPanel from './JobPanel.jsx';
 
 const label = {
   running: 'Running',
@@ -40,6 +41,8 @@ export default function ReplayPanel({ capture, labId }) {
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
+  const [queueActive, setQueueActive] = useState(false);
+  const jobsChanged = useCallback(() => setRevision((value) => value + 1), []);
   const [error, setError] = useState('');
   const actions = useRef(new Set());
   const base = `/api/labs/${labId}`;
@@ -161,7 +164,7 @@ export default function ReplayPanel({ capture, labId }) {
                 required
                 value={failFirst ?? config?.fail_first ?? 0}
                 onChange={(event) => setFailFirst(event.target.value)}
-                disabled={Boolean(busy) || loading}
+                disabled={Boolean(busy) || loading || queueActive}
               />
             </label>
             <label>
@@ -173,7 +176,7 @@ export default function ReplayPanel({ capture, labId }) {
                 required
                 value={delayMs ?? config?.delay_ms ?? 0}
                 onChange={(event) => setDelayMs(event.target.value)}
-                disabled={Boolean(busy) || loading}
+                disabled={Boolean(busy) || loading || queueActive}
               />
             </label>
           </div>
@@ -182,7 +185,7 @@ export default function ReplayPanel({ capture, labId }) {
               type="checkbox"
               checked={idempotency ?? config?.idempotency_enabled ?? false}
               onChange={(event) => setIdempotency(event.target.checked)}
-              disabled={Boolean(busy) || loading}
+              disabled={Boolean(busy) || loading || queueActive}
             />{' '}
             Protect against duplicate demo actions
           </label>
@@ -192,7 +195,7 @@ export default function ReplayPanel({ capture, labId }) {
           </p>
           <button
             className="button secondary compact"
-            disabled={!config || loading || Boolean(busy)}
+            disabled={!config || loading || Boolean(busy) || queueActive}
           >
             {busy === 'save' ? 'Saving…' : 'Save & reset receiver'}
           </button>
@@ -236,10 +239,13 @@ export default function ReplayPanel({ capture, labId }) {
             required
             value={timeoutMs}
             onChange={(event) => setTimeoutMs(event.target.value)}
-            disabled={Boolean(busy)}
+            disabled={Boolean(busy) || queueActive}
           />
         </label>
-        <button className="button primary" disabled={!config || loading || Boolean(busy) || dirty}>
+        <button
+          className="button primary"
+          disabled={!config || loading || Boolean(busy) || dirty || queueActive}
+        >
           <RotateCcw size={15} />
           {busy === 'replay' ? 'Replaying…' : 'Replay original body'}
         </button>
@@ -248,6 +254,20 @@ export default function ReplayPanel({ capture, labId }) {
       {error && (
         <p role="alert" className="form-error">
           {error}
+        </p>
+      )}
+      <JobPanel
+        labId={labId}
+        captureId={capture.id}
+        timeoutMs={timeoutMs}
+        disabled={!config || loading || Boolean(busy) || dirty}
+        onActiveChange={setQueueActive}
+        onChange={jobsChanged}
+      />
+      {queueActive && (
+        <p className="muted">
+          A delivery job is active. Stop retries or wait for it to finish before changing receiver
+          settings or sending a manual replay.
         </p>
       )}
       <div className="replay-history-heading">

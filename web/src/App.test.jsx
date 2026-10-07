@@ -44,6 +44,7 @@ function responseFor(path) {
   if (path.startsWith(`/api/labs/${labId}/requests?`)) {
     return { requests: captures, total: captures.length, offset: 0 };
   }
+  if (path.includes('/jobs')) return { jobs: [], total: 0, offset: 0 };
   if (path.endsWith('/receiver')) return { fail_first: 0, delay_ms: 0, received_count: 0 };
   if (path.includes('/replays')) return { runs: [], total: 0, offset: 0 };
   const capture = captures.find((item) => detailPath(item) === path);

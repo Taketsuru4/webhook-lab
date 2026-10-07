@@ -38,3 +38,13 @@ At the time of this October 2 verification, GitHub Actions was configured but ha
 - Saving settings preserves existing protection records. Confirmed cleanup deletes them; a subsequent experiment can process that key again.
 - An isolated browser flow enabled protection and replayed one capture twice: the dashboard reported one demo action and one skipped duplicate, while both attempts returned HTTP 200. The history distinguished the new action from duplicate acknowledgement.
 - The mobile screenshot was inspected at 375 px; no document-level horizontal overflow or browser JavaScript errors were reported. Browser data was separate from the application's data directory and the temporary server/browser were closed after checks.
+
+## Durable retry checks — October 7, 2026
+
+- `npm run verify` passed: 48 API tests, 24 UI tests, lint, formatting and production build.
+- API tests cover persistence before acknowledgement, transient failure retries, exponential delay, attempt limits, terminal conflicts, timeout uncertainty, cancellation, stale leases, rollback, uncertain result commits, scoped pagination and resuming a queued job after reopening the database.
+- UI tests cover queue settings, job progress, cancellation, late results after selection changes and active jobs belonging to another capture in the same lab.
+- An isolated browser flow on port 4311 configured two receiver failures and duplicate protection. The queued job recorded HTTP 500, 500 and 200, reached Delivered after three attempts and produced one demo action.
+- A second job used a delayed failing receiver. Stop retries cancelled it after two attempts; no third attempt appeared. Reload retained both jobs and their terminal states.
+- Desktop and 375 px screenshots were inspected. The mobile page had no document-level horizontal overflow; no browser console errors or warnings were reported during the flow. No new accessibility audit was performed.
+- The worker is intended for one local API process. Recovery provides at-least-once attempts: a timed-out or interrupted request may already have reached the receiver, so duplicate protection remains necessary when demonstrating safe effects.

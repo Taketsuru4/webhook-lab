@@ -2,13 +2,13 @@
 
 ## Scope
 
-The local MVP captures, inspects and manually replays webhooks to a built-in mock receiver. It is intended to be understandable by a JavaScript developer and runnable without installing database services. It has no background worker or automatic retries. Run one API process, even with external PostgreSQL. The initial workload is one developer and occasional bursts of synthetic webhooks, with payloads limited to 256 KiB.
+The local MVP captures, inspects and manually replays webhooks to a built-in mock receiver. It is intended to be understandable by a JavaScript developer and runnable without installing database services. A local background worker supports persistent, finite retry jobs. Run one API process, even with external PostgreSQL. The initial workload is one developer and occasional bursts of synthetic webhooks, with payloads limited to 256 KiB.
 
 ## One request is one record
 
 Every POST gets a UUID capture ID. The optional provider event ID is metadata, not a uniqueness constraint. Deduplicating at the capture layer would remove the exact evidence this tool should expose. Duplicate counts are scoped to a lab.
 
-Each manual replay creates a new `replay_runs` row referencing its immutable capture. There is one HTTP attempt per run. No business operation, payment execution, event deduplication or exactly-once processing is inferred from capture or replay status. A future queued-delivery model can distinguish runs, deliveries and attempts.
+Each manual replay creates a new `replay_runs` row referencing its immutable capture. There is one HTTP attempt per run. Manual attempts remain independent; queued jobs group their attempts with `delivery_job_id` and an attempt number. No business operation, payment execution, event deduplication or exactly-once processing is inferred from capture or replay status. Delivery job state describes overall scheduling; HTTP attempt state records each observed result.
 
 ## Byte preservation
 
@@ -44,7 +44,7 @@ A lab row lock serializes starting a replay, saving receiver settings and cleari
 
 The dashboard keeps replay controls separate from the original inspector tabs, refreshes history after an action and cancels obsolete reads/actions when selection changes. Cancelling the browser request does not undo a server-side delivery. Running history entries are polled until completion; other history is refreshed manually, so another browser's new attempt is visible after Refresh.
 
-The tradeoff is an immediately runnable local experiment with clear outcomes and small operational cost. A durable worker and configurable external destinations are separate next steps.
+The tradeoff is an immediately runnable local experiment with clear outcomes and small operational cost. A separate scalable worker and configurable external destinations are future steps.
 
 ## Transactional receiver idempotency
 
@@ -58,7 +58,23 @@ Receiver settings reset only the fail-first counter. Existing effects/keys and a
 
 The guarantee covers the demo action stored in the same database transaction. External payments, email or arbitrary side effects require their own idempotency contract or transactional outbox; a database key cannot make a remote action atomic.
 
-## Next milestone: queued outbound delivery
+## Persistent local retry worker
+
+Migration 5 creates `delivery_jobs` and links background attempts to their jobs. Enqueue holds the lab lock, checks capture scope and absence of active experiments, persists the job and commits before 202. A partial unique index guards one active job per lab. The job row is the local durable queue itself, so there is no second queue write or outbox dual-write problem in this version.
+
+The worker starts only after Fastify is listening. It polls every 250 ms and processes one job attempt at a time across labs. Claiming locks the lab then the job, rechecks eligibility, inserts the running attempt and updates the job lease/count in one transaction before HTTP. Result storage and next scheduling state also commit together. HTTP happens outside the transaction so the built-in receiver can acquire its own lab lock.
+
+A finite policy retries network failures, timeouts, HTTP 408/429 and 5xx responses. Other responses, including redirects and 409 conflicts, stop. The initial delay doubles per failure and caps at five seconds; retries include no jitter because this local tool aims for reproducible experiments. Maximum attempts includes the initial attempt and is limited to five. A production dispatcher would need configurable jitter, Retry-After support and a concurrency/throughput policy.
+
+If a lease remains running for 15 seconds, recovery marks the attempt interrupted and schedules another one if budget remains, or terminates exhausted/cancelled jobs. Failed result transactions can leave a request delivered but recorded as uncertain; receiver-side idempotency is what prevents repeated demo actions during recovery. A late completion must match the current attempt count/state before updating the job. This is an at-least-once model; there is no exactly-once delivery claim.
+
+Cancellation is durable and scoped to the job's capture/lab. Queued/waiting jobs stop immediately. Running jobs set a cancellation flag and record the current outcome before cancelling future attempts. Receiver resets, manual replay and inbox cleanup reject active jobs. Clear inbox cascades through jobs/attempts and separately clears receiver receipts/effects. Job histories paginate ten jobs per page and include at most five bounded attempt responses each; manual history excludes background attempts.
+
+`preClose` stops polling and waits for the current worker attempt before resource shutdown. Idle HTTP sockets are limited to ten seconds. Test teardown explicitly destroys unused test sockets after assertions so aborted-fetch replacement connections cannot delay the suite. Fresh interrupted leases may remain visible as running until expiry; the UI polls active jobs and explains cancellation uncertainty.
+
+This keeps the default installation runnable without Redis, at the cost of a single in-process worker and database polling. PGlite still requires one API process; external PostgreSQL is exercised with the same SQL but this release keeps the same one-process contract. A separate distributed-worker mode should add heartbeat leases, worker ownership, fairness and reconciliation tests rather than assuming this local loop is a scalable service.
+
+## Next milestone: separate outbound worker
 
 Create a run and its planned deliveries inside a PostgreSQL transaction. Persist an outbox entry in that transaction. A dispatcher submits pending entries to BullMQ using stable job IDs. Recover pending entries after restart; reconcile jobs that might have been submitted before the dispatcher marked them.
 
