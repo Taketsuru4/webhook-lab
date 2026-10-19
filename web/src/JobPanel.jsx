@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, RefreshCw, Repeat2 } from 'lucide-react';
-import { api, jsonPost } from './api.js';
+import { api, jsonPost, isDemo } from './api.js';
 
 const active = (job) => ['queued', 'running', 'waiting_retry'].includes(job.state);
 const labels = {
@@ -107,8 +107,9 @@ export default function JobPanel({
         </button>
       </div>
       <p className="muted">
-        A saved job runs in the background and survives a server restart. Transient failures retry;
-        conflicts stop.
+        {isDemo
+          ? 'Simulated jobs run while this tab is open. Reload resets them. Transient failures retry; conflicts stop.'
+          : 'A saved job runs in the background and survives a server restart. Transient failures retry; conflicts stop.'}
       </p>
       <form
         onSubmit={(event) => {

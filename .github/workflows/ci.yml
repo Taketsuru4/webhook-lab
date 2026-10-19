@@ -14,6 +14,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify
+      - run: npm run build:demo
   postgres:
     runs-on: ubuntu-latest
     services:

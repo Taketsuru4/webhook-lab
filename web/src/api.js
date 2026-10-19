@@ -1,4 +1,10 @@
+export const isDemo = import.meta.env.MODE === 'demo';
+let demo;
 export async function api(path, options = {}) {
+  if (isDemo) {
+    demo ||= import('./demo.js').then(({ createDemoApi }) => createDemoApi());
+    return (await demo).api(path, options);
+  }
   const response = await fetch(path, options);
   let result;
   try {

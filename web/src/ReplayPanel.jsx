@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, RefreshCw, RotateCcw } from 'lucide-react';
-import { api, jsonPost } from './api.js';
+import { api, jsonPost, isDemo } from './api.js';
 import JobPanel from './JobPanel.jsx';
 
 const label = {
@@ -170,7 +170,9 @@ export default function ReplayPanel({ capture, labId }) {
             disabled={loading || Boolean(busy) || !target}
           >
             <option value="mock">Built-in mock</option>
-            <option value="local">My local endpoint</option>
+            <option value="local" disabled={isDemo}>
+              My local endpoint{isDemo ? ' (local app only)' : ''}
+            </option>
           </select>
         </label>
         {mode === 'local' && (
@@ -191,6 +193,10 @@ export default function ReplayPanel({ capture, labId }) {
               HTTP localhost or 127.0.0.1 with an explicit port. Replaying can trigger real actions
               in your application; use test data.
             </p>
+            <p className="muted">
+              Mock duplicate protection does not apply here. Your handler must implement its own
+              idempotency.
+            </p>
           </>
         )}
         <button
@@ -203,7 +209,9 @@ export default function ReplayPanel({ capture, labId }) {
           Saved destination: {target?.mode === 'local' ? target.url : 'Built-in mock'}
         </p>
         <p className="muted">
-          Existing jobs keep their saved destination. Changes apply to new deliveries.
+          {isDemo
+            ? 'The demo simulates the built-in receiver. Use the local app for real delivery to your own API.'
+            : 'Existing jobs keep their saved destination. Changes apply to new deliveries.'}
         </p>
       </form>
       {mode === 'mock' && (
@@ -414,8 +422,9 @@ export default function ReplayPanel({ capture, labId }) {
         </div>
       )}
       <p className="replay-note">
-        Body bytes are preserved. Only Content-Type is forwarded; captured credentials and provider
-        signatures are excluded.
+        {isDemo
+          ? 'Responses and effects are simulated in this browser. Use the local app for real HTTP delivery and persistent history.'
+          : 'Body bytes are preserved. Only Content-Type is forwarded; captured credentials and provider signatures are excluded.'}
       </p>
     </section>
   );
