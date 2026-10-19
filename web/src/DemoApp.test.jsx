@@ -23,4 +23,11 @@ it('clearly labels the simulation, hides nonfunctional URL copying and loads a s
   await screen.findByLabelText('Receiver');
   expect(screen.getByRole('option', { name: /My local endpoint/ }).disabled).toBe(true);
   expect(screen.queryByText('Saved to PostgreSQL')).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'View features & limits' }));
+  const guide = await screen.findByRole('region', { name: 'Versions and limits' });
+  expect(guide.textContent).toContain('Mock duplicate protection does not protect your own API');
+  expect(guide.textContent).toContain('Provider signature verification is not implemented');
+  expect(screen.getByRole('table').textContent).toContain(
+    'Persisted jobs, backoff, cancellation and restart recovery',
+  );
 });

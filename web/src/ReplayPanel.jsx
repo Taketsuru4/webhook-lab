@@ -193,6 +193,10 @@ export default function ReplayPanel({ capture, labId }) {
               HTTP localhost or 127.0.0.1 with an explicit port. Replaying can trigger real actions
               in your application; use test data.
             </p>
+            <p className="muted">
+              Mock duplicate protection does not apply here. Your handler must implement its own
+              idempotency.
+            </p>
           </>
         )}
         <button

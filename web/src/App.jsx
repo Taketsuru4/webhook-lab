@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, curlCommand, formatBytes, jsonPost, sampleEvent, isDemo } from './api.js';
+import VersionGuide from './VersionGuide.jsx';
 import { readInbox } from './polling.js';
 import ReplayPanel from './ReplayPanel.jsx';
 
@@ -509,39 +510,43 @@ function Traffic({ counts = [] }) {
 function Guide({ lab, onError, onSend }) {
   if (isDemo)
     return (
-      <section className="guide-card">
-        <span className="eyebrow">INTERACTIVE DEMO</span>
-        <h2>Try a delivery experiment</h2>
-        <p>
-          Select a seeded event, open Receiver behavior, set Fail first N requests to 2, and save.
-          Queue delivery with three attempts to see simulated 500, 500 and 200 responses.
-        </p>
-        <p>
-          Enable Protect against duplicate demo actions and replay the same event twice. Compare the
-          number of deliveries with the number of simulated actions. Try a 3000 ms delay with a 2000
-          ms timeout to explore uncertain delivery.
-        </p>
-        <p>
-          This demo runs entirely in this tab. Reload resets its synthetic data and stops its
-          timers. It has no public webhook endpoint, server database or network delivery. Do not
-          enter sensitive data.
-        </p>
-        <p>
-          The JavaScript local application has real Fastify HTTP capture, PostgreSQL persistence,
-          durable retry jobs and replay to your own localhost receiver.
-        </p>
-        <a
-          className="button secondary"
-          href="https://github.com/Taketsuru4/webhook-lab"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Get the local app on GitHub
-        </a>
-      </section>
+      <div className="guide-grid">
+        <VersionGuide />
+        <section className="guide-card wide">
+          <span className="eyebrow">INTERACTIVE DEMO</span>
+          <h2>Try a delivery experiment</h2>
+          <p>
+            Select a seeded event, open Receiver behavior, set Fail first N requests to 2, and save.
+            Queue delivery with three attempts to see simulated 500, 500 and 200 responses.
+          </p>
+          <p>
+            Enable Protect against duplicate demo actions and replay the same event twice. Compare
+            the number of deliveries with the number of simulated actions. Try a 3000 ms delay with
+            a 2000 ms timeout to explore uncertain delivery.
+          </p>
+          <p>
+            This demo runs entirely in this tab. Reload resets its synthetic data and stops its
+            timers. It has no public webhook endpoint, server database or network delivery. Do not
+            enter sensitive data.
+          </p>
+          <p>
+            The JavaScript local application has real Fastify HTTP capture, PostgreSQL persistence,
+            durable retry jobs and replay to your own localhost receiver.
+          </p>
+          <a
+            className="button secondary"
+            href="https://github.com/Taketsuru4/webhook-lab"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Get the local app on GitHub
+          </a>
+        </section>
+      </div>
     );
   return (
     <div className="guide-grid">
+      <VersionGuide />
       <section className="guide-card">
         <span className="step-number">01</span>
         <h2>Send your first webhook</h2>
@@ -895,13 +900,33 @@ export default function App() {
               <div>
                 <strong>Interactive demo · browser simulation</strong>
                 <p>
-                  Synthetic data stays in this tab. No real webhooks are sent or received. Reload
-                  resets the playground.
+                  Try the local app's workflow without installing it. Synthetic data stays in this
+                  tab. No real webhooks are sent or received. Reload resets the playground.
                 </p>
               </div>
-              <a href="https://github.com/Taketsuru4/webhook-lab" target="_blank" rel="noreferrer">
-                Get the local app ↗
-              </a>
+              <div className="version-actions">
+                <button className="button secondary compact" onClick={() => setView('guide')}>
+                  View features & limits
+                </button>
+                <a
+                  href="https://github.com/Taketsuru4/webhook-lab"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Get the local app ↗
+                </a>
+              </div>
+            </section>
+          )}
+          {!isDemo && (
+            <section className="local-version-note" aria-label="Local version information">
+              <p>
+                <strong>Local, single-user app.</strong> Real HTTP capture and saved data on your
+                computer. Public hosting and user accounts are not included.
+              </p>
+              <button className="button secondary compact" onClick={() => setView('guide')}>
+                View features & limits
+              </button>
             </section>
           )}
           <div className="page-title">
