@@ -131,6 +131,28 @@ const migrations = [
       );
     },
   },
+  {
+    version: 6,
+    name: 'selected_local_delivery_target',
+    async up(tx) {
+      await tx.query(
+        "ALTER TABLE labs ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'mock' CHECK (delivery_mode IN ('mock','local'))",
+      );
+      await tx.query('ALTER TABLE labs ADD COLUMN delivery_url TEXT');
+      await tx.query(
+        "ALTER TABLE labs ADD CONSTRAINT labs_delivery_target CHECK ((delivery_mode = 'mock' AND delivery_url IS NULL) OR (delivery_mode = 'local' AND delivery_url IS NOT NULL))",
+      );
+      for (const table of ['replay_runs', 'delivery_jobs']) {
+        await tx.query(
+          `ALTER TABLE ${table} ADD COLUMN target_mode TEXT NOT NULL DEFAULT 'mock' CHECK (target_mode IN ('mock','local'))`,
+        );
+        await tx.query(`ALTER TABLE ${table} ADD COLUMN target_url TEXT`);
+        await tx.query(
+          `ALTER TABLE ${table} ADD CONSTRAINT ${table}_delivery_target CHECK (target_mode = 'mock' OR target_url IS NOT NULL)`,
+        );
+      }
+    },
+  },
 ];
 
 export async function runMigrations(database) {

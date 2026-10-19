@@ -34,7 +34,7 @@ Offset pagination keeps the API easy to understand but can shift under continuou
 
 ## Local manual replay
 
-Migration 3 adds receiver settings, replay runs and mock receipts. Persist a `running` row before sending. The API then forwards the stored body and Content-Type over real loopback HTTP to its own mock route, followed by a separate result UPDATE. APP_ORIGIN affects displayed capture URLs and cannot select a replay destination. Other captured headers are not forwarded: credentials are redacted and old signature headers would misrepresent the new request.
+Migration 3 adds receiver settings, replay runs and mock receipts. Persist a `running` row before sending. The API then forwards the stored body and Content-Type over real loopback HTTP, followed by a separate result UPDATE. Migration 6 adds an explicit choice between the built-in mock and a local HTTP receiver. APP_ORIGIN affects displayed capture URLs and cannot select a replay destination. Other captured headers are not forwarded: credentials are redacted and old signature headers would misrepresent the new request.
 
 The mock receiver atomically increments its counter and records the received body before delaying its response. Its first N requests return 500, and subsequent requests return 200. Saving configuration resets the counter. Original captures are never changed or added by replay. Receipts retain another copy of the body: acceptable for local experiments, but they increase storage and must be included in cleanup/retention for a hosted product.
 
@@ -81,3 +81,13 @@ Create a run and its planned deliveries inside a PostgreSQL transaction. Persist
 The worker records each HTTP attempt, applies a finite retry policy, and forwards the recorded bytes. Worker retries and queue redelivery must be expected. Receiver-side idempotency requires its own transactional constraints and cannot be guaranteed by queue job-ID deduplication.
 
 The built-in mock receiver already supports deterministic 500 responses and slow acknowledgements. The public demo should initially allow only that receiver; arbitrary outbound URLs require protection against access to private addresses, redirects, and DNS changes.
+
+## Selected local receivers
+
+Migration 6 adds `delivery_mode` and `delivery_url` to labs, plus `target_mode` and `target_url` snapshots on jobs and attempts. Existing labs and historical records default to mock. Existing attempts keep an unknown historical URL as NULL rather than inventing an address. Target settings use GET/PUT `/api/labs/:labId/delivery-target`, scoped and serialized by the lab lock. Switching destinations is allowed while a job is active: it affects only future deliveries. Mock scenario resets remain blocked during active experiments.
+
+The validator requires an explicit HTTP URL with literal `localhost` or `127.0.0.1` and port 1–65535. It checks the original authority before URL normalization, rejects credentials, fragments, whitespace and backslashes, and turns localhost into literal IPv4 without DNS. The current API port is rejected, including when processing a persisted job after restart. Redirects are not followed. This intentionally excludes HTTPS, IPv6, LAN and remote destinations. It is a local single-user capability, not an outbound proxy for hosted use.
+
+Manual attempts save their concrete address before sending. Jobs snapshot the selected local URL at enqueue; each retry revalidates it and records its actual destination. Invalid recovered addresses fail without HTTP or further retries. Mock jobs resolve this API's current listening port at execution so they survive a restart on a different port. HTTP remains outside transactions; recording results and advancing jobs remains atomic. Existing byte preservation, timeout, 16 KiB response limit, header exclusions and cancellation semantics are shared by both destinations.
+
+The dashboard hides mock totals and scenarios for a selected local receiver and never interprets an external response as proof of a demo effect. Idempotency and provider authentication belong to the user's receiver. The included dependency-free example is disposable, with an in-memory attempt counter and optional failure/delay settings; it does not promise durable duplicate protection. A hosted version would need authenticated destination management and a separate outbound policy.

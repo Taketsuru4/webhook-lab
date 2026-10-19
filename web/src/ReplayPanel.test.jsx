@@ -9,6 +9,7 @@ const capture = { id: 'capture-1' };
 const base = '/api/labs/lab-1';
 let receiver;
 let runs;
+let destination;
 const run = (state = 'succeeded') => ({
   id: 'run-1',
   state,
@@ -21,7 +22,15 @@ const run = (state = 'succeeded') => ({
 beforeEach(() => {
   receiver = { fail_first: 1, delay_ms: 0, received_count: 0 };
   runs = [];
+  destination = { mode: 'mock', url: null };
   api.mockImplementation(async (path, options) => {
+    if (path.endsWith('/delivery-target')) {
+      if (options?.method === 'PUT') {
+        destination = JSON.parse(options.body);
+        if (destination.url) destination.url = destination.url.replace('localhost', '127.0.0.1');
+      }
+      return destination;
+    }
     if (path.includes('/jobs')) return { jobs: [], total: 0, offset: 0 };
     if (path.endsWith('/receiver')) {
       if (options?.method === 'PUT') receiver = { ...JSON.parse(options.body), received_count: 0 };
@@ -35,6 +44,82 @@ beforeEach(() => {
     if (path.includes('/replays?')) return { runs, total: runs.length, offset: 0 };
     throw new Error(`Unexpected ${path}`);
   });
+});
+
+it('saves a normalized local endpoint, hides mock controls and records the actual destination', async () => {
+  const user = userEvent.setup();
+  render(<ReplayPanel capture={capture} labId="lab-1" />);
+  await screen.findByText(/No attempts yet/);
+  await user.selectOptions(screen.getByLabelText('Receiver'), 'local');
+  expect(screen.queryByText(/Receiver behavior/)).toBeNull();
+  expect(screen.queryByText('Demo actions processed')).toBeNull();
+  await user.type(screen.getByLabelText('Local receiver URL'), 'http://localhost:3000/webhooks');
+  expect(screen.getByRole('button', { name: 'Replay original body' }).disabled).toBe(true);
+  expect(screen.getByRole('button', { name: 'Queue delivery' }).disabled).toBe(true);
+  await user.click(screen.getByRole('button', { name: 'Save destination' }));
+  await screen.findByText('Saved destination: http://127.0.0.1:3000/webhooks');
+  expect(screen.getByLabelText('Local receiver URL').value).toBe('http://127.0.0.1:3000/webhooks');
+  expect(screen.getByRole('button', { name: 'Replay original body' }).disabled).toBe(false);
+  const original = api.getMockImplementation();
+  api.mockImplementation(async (path, options) => {
+    if (path.endsWith('/replays') && options?.method === 'POST') {
+      runs = [
+        {
+          ...run(),
+          target_mode: 'local',
+          target_url: destination.url,
+          response_body: '{"outcome":"duplicate"}',
+        },
+      ];
+      return runs[0];
+    }
+    return original(path, options);
+  });
+  await user.click(screen.getByRole('button', { name: 'Replay original body' }));
+  expect(await screen.findByText('To: http://127.0.0.1:3000/webhooks')).toBeTruthy();
+  expect(screen.queryByText('Duplicate skipped: original demo action retained')).toBeNull();
+  expect(screen.getByText(/your receiver must handle duplicate deliveries safely/)).toBeTruthy();
+});
+
+it('keeps sending disabled after a rejected destination and allows correcting it', async () => {
+  const original = api.getMockImplementation();
+  api.mockImplementation((path, options) => {
+    if (
+      path.endsWith('/delivery-target') &&
+      options?.method === 'PUT' &&
+      options.body.includes('example.com')
+    )
+      throw new Error('Only local endpoints are allowed.');
+    return original(path, options);
+  });
+  const user = userEvent.setup();
+  render(<ReplayPanel capture={capture} labId="lab-1" />);
+  await screen.findByText(/No attempts yet/);
+  await user.selectOptions(screen.getByLabelText('Receiver'), 'local');
+  const input = screen.getByLabelText('Local receiver URL');
+  await user.type(input, 'http://example.com:3000/hook');
+  await user.click(screen.getByRole('button', { name: 'Save destination' }));
+  expect((await screen.findByRole('alert')).textContent).toContain('Only local');
+  expect(screen.getByRole('button', { name: 'Replay original body' }).disabled).toBe(true);
+  await user.clear(input);
+  await user.type(input, 'http://localhost:3000/hook');
+  await user.click(screen.getByRole('button', { name: 'Save destination' }));
+  await screen.findByText('Saved destination: http://127.0.0.1:3000/hook');
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('loads a persisted local target and keeps old attempt destinations visible after switching to mock', async () => {
+  destination = { mode: 'local', url: 'http://127.0.0.1:3000/old' };
+  runs = [{ ...run(), target_mode: 'local', target_url: destination.url }];
+  const user = userEvent.setup();
+  render(<ReplayPanel capture={capture} labId="lab-1" />);
+  await screen.findByText('To: http://127.0.0.1:3000/old');
+  expect(screen.getByLabelText('Receiver').value).toBe('local');
+  await user.selectOptions(screen.getByLabelText('Receiver'), 'mock');
+  await user.click(screen.getByRole('button', { name: 'Save destination' }));
+  await screen.findByText('Saved destination: Built-in mock');
+  expect(screen.getByText('To: http://127.0.0.1:3000/old')).toBeTruthy();
+  expect(screen.getByText(/Receiver behavior/)).toBeTruthy();
 });
 afterEach(() => {
   cleanup();

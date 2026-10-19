@@ -31,7 +31,7 @@ npm run dev
 
 Επίλεξε το capture και πάτησε **Replay original body**. Τα αρχικά bytes στέλνονται με πραγματικό HTTP στον mock receiver. Κάθε πάτημα δημιουργεί ξεχωριστή προσπάθεια με status, διάρκεια και response.
 
-Στο **Receiver behavior**, βάλε **Fail first N requests = 1** και πάτησε **Save & reset receiver**. Κάνε δύο replays: πρώτα θα δεις HTTP 500, μετά HTTP 200. Για timeout, αποθήκευσε delay 3000 ms και κράτησε timeout 2000 ms. Ο receiver μπορεί να έχει ήδη παραλάβει το body όταν σταματήσει να περιμένει ο αποστολέας. Δεν κάνουμε αυτόματο retry.
+Στο **Receiver behavior**, βάλε **Fail first N requests = 1** και πάτησε **Save & reset receiver**. Κάνε δύο replays: πρώτα θα δεις HTTP 500, μετά HTTP 200. Για timeout, αποθήκευσε delay 3000 ms και κράτησε timeout 2000 ms. Ο receiver μπορεί να έχει ήδη παραλάβει το body όταν σταματήσει να περιμένει ο αποστολέας. Το manual replay δεν κάνει αυτόματο retry· για αυτό χρησιμοποιούμε το Queue delivery.
 
 Το ιστορικό και οι ρυθμίσεις διατηρούνται μετά την επανεκκίνηση. Με **Clear inbox**, πληκτρολόγησε το όνομα του lab για να διαγράψεις τα captures, το replay history και τα mock receipts αυτού του lab. Το endpoint και οι ρυθμίσεις μένουν, ενώ ο μετρητής του receiver μηδενίζεται.
 
@@ -44,6 +44,14 @@ npm run dev
 Το **Stop retries** σταματά μελλοντικές προσπάθειες. Αν υπάρχει αποστολή σε εξέλιξη, πρώτα καταγράφεται το αποτέλεσμά της. Δεν αναιρείται κάτι που έγινε ήδη στον receiver. Όσο υπάρχει ενεργό job δεν αλλάζουμε τις ρυθμίσεις του receiver και δεν καθαρίζουμε το inbox.
 
 Το `server/jobs.js` έχει τον τοπικό worker και τη durable ουρά στη βάση· το `web/src/JobPanel.jsx` τη νέα προβολή. Μετά από διακοπή μπορεί να γίνει νέα προσπάθεια για αβέβαιη παράδοση: η προστασία duplicates παραμένει στον receiver, όχι στην ουρά.
+
+## Το δικό σου τοπικό API
+
+Σε δεύτερο terminal τρέξε `npm run example:receiver`. Στον inspector διάλεξε **Receiver → My local endpoint**, γράψε `http://localhost:3000/webhooks` και πάτησε **Save destination**. Με Replay ή Queue delivery στέλνεις τα αρχικά bytes στο δικό σου endpoint. Το ιστορικό γράφει URL, status, διάρκεια και response. Για το παράδειγμα με δύο αποτυχίες, κάνε restart τον example receiver με `FAIL_FIRST=2 npm run example:receiver` και βάλε 3 attempts στο Lab. Ο counter του παραδείγματος μηδενίζεται μετά το restart.
+
+Δεχόμαστε μόνο HTTP localhost/127.0.0.1 με ρητό port. Δεν υποστηρίζουμε HTTPS, IPv6, δημόσια URLs ή τον ίδιο τον API server ως custom προορισμό. Οι επιλογές αποτυχίας και duplicate protection του mock δεν εφαρμόζονται στο δικό σου API. Το replay μπορεί να προκαλέσει πραγματικές ενέργειες: χρησιμοποίησε development handler και δοκιμαστικά δεδομένα. Δεν προωθούμε captured credentials ή provider signatures.
+
+Κάθε job κρατά το URL της δημιουργίας του. Αν αλλάξεις τον προορισμό του lab, η αλλαγή εφαρμόζεται μόνο σε νέες παραδόσεις. Το localhost κανονικοποιείται σε 127.0.0.1. Αυτό το feature δεν δημιουργεί δημόσιο URL για εξωτερικούς providers.
 
 Authentication, arbitrary receiver URLs και ξεχωριστός Redis/BullMQ worker μένουν για επόμενο στάδιο.
 

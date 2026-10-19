@@ -32,6 +32,7 @@ const captures = ['first', 'second'].map((name, index) => {
 const detailPath = (capture) => `/api/labs/${labId}/requests/${capture.id}`;
 
 function responseFor(path) {
+  if (path.endsWith('/delivery-target')) return { mode: 'mock', url: null };
   if (path === '/api/labs') {
     return {
       database: 'embedded',

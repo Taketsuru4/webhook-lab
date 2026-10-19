@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { acceptMock, receiverSummary } from './receiver.js';
 import { deliver, storeResult, viewRun } from './delivery.js';
 import { registerJobs } from './jobs.js';
+import { registerTargets, snapshotTarget, deliveryUrl } from './targets.js';
 export { deliver } from './delivery.js';
 
 const uuid = { type: 'string', format: 'uuid' };
@@ -51,6 +52,8 @@ export async function registerReplay(
     ]);
     return (await tx.query('SELECT * FROM mock_receivers WHERE lab_id = $1', [labId])).rows[0];
   }
+
+  registerTargets(app, database, { labParams, lockLab });
 
   app.get('/api/labs/:labId/receiver', { schema: { params: labParams } }, async (request) =>
     database.transaction(async (tx) => {
@@ -147,7 +150,7 @@ export async function registerReplay(
       const id = randomUUID();
       active.add(id);
       try {
-        const { capture, token } = await database.transaction(async (tx) => {
+        const { capture, url } = await database.transaction(async (tx) => {
           const lab = await lockLab(tx, labId);
           const { rows } = await tx.query(
             'SELECT * FROM captured_requests WHERE lab_id = $1 AND id = $2',
@@ -156,17 +159,19 @@ export async function registerReplay(
           if (!rows[0]) throw failure('Request not found.', 404);
           // One experiment per lab at a time makes fail-first behavior reproducible.
           await ensureIdle(tx, labId);
+          const target = snapshotTarget(lab, app);
+          const url = deliveryUrl(target, app, lab.token);
           await tx.query(
-            `INSERT INTO replay_runs (id, lab_id, capture_id, timeout_ms) VALUES ($1, $2, $3, $4)`,
-            [id, labId, requestId, request.body.timeout_ms],
+            `INSERT INTO replay_runs (id, lab_id, capture_id, timeout_ms, target_mode, target_url) VALUES ($1, $2, $3, $4, $5, $6)`,
+            [id, labId, requestId, request.body.timeout_ms, target.target_mode, url],
           );
-          return { capture: rows[0], token: lab.token };
+          return { capture: rows[0], url };
         });
         const address = app.server.address();
-        // Always target this process over loopback; APP_ORIGIN is only a display setting.
+        // The destination was validated and persisted before sending.
         const result = address
           ? await transport({
-              url: `http://127.0.0.1:${address.port}/mock/${token}`,
+              url,
               body: Buffer.from(capture.raw_body_base64, 'base64'),
               contentType: capture.content_type,
               runId: id,

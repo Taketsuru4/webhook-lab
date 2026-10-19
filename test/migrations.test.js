@@ -49,6 +49,10 @@ it('upgrades an existing capture database and restores full identities without l
         [`${prefix}1`, `${prefix}2`],
       );
       assert.ok(rows.every((row) => row.event_type === 'exact.event'));
+      const legacyLab = (
+        await tx.query('SELECT delivery_mode, delivery_url FROM labs WHERE id = $1', [labId])
+      ).rows[0];
+      assert.deepEqual(legacyLab, { delivery_mode: 'mock', delivery_url: null });
       for (const row of rows) {
         assert.deepEqual(JSON.parse(Buffer.from(row.raw_body_base64, 'base64').toString()), {
           id: row.event_id,
@@ -57,7 +61,7 @@ it('upgrades an existing capture database and restores full identities without l
       }
       assert.equal(
         (await tx.query('SELECT count(*)::int AS count FROM schema_migrations')).rows[0].count,
-        5,
+        6,
       );
       await tx.query(`DROP SCHEMA ${schema} CASCADE`);
     });
