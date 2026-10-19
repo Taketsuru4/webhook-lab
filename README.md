@@ -2,6 +2,8 @@
 
 **Capture, inspect, and replay your webhooks.**
 
+[Try the interactive browser demo](https://webhook-lab-demo.vercel.app) · simulated deliveries, no installation required.
+
 [![Verify](https://github.com/Taketsuru4/webhook-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/Taketsuru4/webhook-lab/actions/workflows/ci.yml)
 
 A local developer tool that gives each integration its own HTTP endpoint and event inbox. Inspect the exact body, browse headers, and spot repeated event IDs without losing any incoming requests.
