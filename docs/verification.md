@@ -48,3 +48,12 @@ At the time of this October 2 verification, GitHub Actions was configured but ha
 - A second job used a delayed failing receiver. Stop retries cancelled it after two attempts; no third attempt appeared. Reload retained both jobs and their terminal states.
 - Desktop and 375 px screenshots were inspected. The mobile page had no document-level horizontal overflow; no browser console errors or warnings were reported during the flow. No new accessibility audit was performed.
 - The worker is intended for one local API process. Recovery provides at-least-once attempts: a timed-out or interrupted request may already have reached the receiver, so duplicate protection remains necessary when demonstrating safe effects.
+
+## Selected local receiver checks — October 19, 2026
+
+- `npm run verify` passed with 56 API tests, 27 UI tests, lint, formatting and production build.
+- Real HTTP tests cover unchanged JSON, malformed JSON, binary and empty bodies; excluded credential/signature headers; persisted destination snapshots; retries after changing lab settings; timeout, in-flight cancellation and redirects; settings isolation; rejected hosts, credentials, alternative IP forms and the API's own port; and destination/job persistence after closing and reopening PGlite.
+- A queued destination is validated again before sending. Tests verify that an address conflicting with the current API port fails without HTTP or another retry. Mock jobs still resolve the API's listening port after restart.
+- UI tests cover normalized local destinations, disabled sends for unsaved changes, correction after a rejected URL, hidden mock controls, historical destination visibility and not interpreting a local receiver response as a mock idempotency outcome.
+- The isolated browser run used a temporary database on port 4311 and the included example receiver on 4312 with `FAIL_FIRST=2`. Queue delivery recorded 500, 500 and 200 at the selected address; manual replay then returned 200. Reload retained the destination, job and manual history.
+- Desktop and 375 px screenshots were inspected. At 375 px, document scroll width equalled the viewport width. No browser console errors or warnings were reported in the verified flow. No new accessibility audit was performed.

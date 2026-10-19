@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { storeResult, viewRun } from './delivery.js';
+import { snapshotTarget, deliveryUrl } from './targets.js';
 
 const activeStates = ['queued', 'running', 'waiting_retry'];
 const error = (message, statusCode) => Object.assign(new Error(message), { statusCode });
@@ -78,15 +79,32 @@ export function createJobWorker({ app, database, transport, lockLab }) {
       if (!capture) throw new Error('Queued capture is unavailable.');
       const runId = randomUUID();
       const attempt = job.attempt_count + 1;
+      // Local targets keep their original address; mock targets follow this API after restart.
+      let url;
+      let targetError;
+      try {
+        url = deliveryUrl(job, app, lab.token);
+      } catch (failure) {
+        targetError = failure.message;
+      }
       await tx.query(
-        `INSERT INTO replay_runs (id, lab_id, capture_id, timeout_ms, delivery_job_id, attempt_number) VALUES ($1,$2,$3,$4,$5,$6)`,
-        [runId, job.lab_id, job.capture_id, job.timeout_ms, job.id, attempt],
+        `INSERT INTO replay_runs (id, lab_id, capture_id, timeout_ms, delivery_job_id, attempt_number, target_mode, target_url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          runId,
+          job.lab_id,
+          job.capture_id,
+          job.timeout_ms,
+          job.id,
+          attempt,
+          job.target_mode,
+          url || job.target_url,
+        ],
       );
       await tx.query(
         "UPDATE delivery_jobs SET state = 'running', attempt_count = $2, lease_started_at = now() WHERE id = $1",
         [job.id, attempt],
       );
-      return { ...job, attempt_count: attempt, runId, token: lab.token, capture };
+      return { ...job, attempt_count: attempt, runId, url, targetError, capture };
     });
   }
   async function execute() {
@@ -95,13 +113,23 @@ export function createJobWorker({ app, database, transport, lockLab }) {
     await recover();
     const job = await claim();
     if (!job) return false;
-    const result = await transport({
-      url: `http://127.0.0.1:${address.port}/mock/${job.token}`,
-      body: Buffer.from(job.capture.raw_body_base64, 'base64'),
-      contentType: job.capture.content_type,
-      runId: job.runId,
-      timeoutMs: job.timeout_ms,
-    });
+    const result = job.targetError
+      ? {
+          state: 'failed',
+          http_status: null,
+          response_body_base64: '',
+          response_content_type: null,
+          response_truncated: false,
+          error: job.targetError,
+          duration_ms: 0,
+        }
+      : await transport({
+          url: job.url,
+          body: Buffer.from(job.capture.raw_body_base64, 'base64'),
+          contentType: job.capture.content_type,
+          runId: job.runId,
+          timeoutMs: job.timeout_ms,
+        });
     await database.transaction(async (tx) => {
       await lockLab(tx, job.lab_id);
       const latest = (
@@ -112,7 +140,10 @@ export function createJobWorker({ app, database, transport, lockLab }) {
         return;
       await storeResult(tx, job.runId, result);
       const retry =
-        result.state !== 'succeeded' && retryable(result) && job.attempt_count < job.max_attempts;
+        !job.targetError &&
+        result.state !== 'succeeded' &&
+        retryable(result) &&
+        job.attempt_count < job.max_attempts;
       const state = latest.cancel_requested
         ? 'cancelled'
         : result.state === 'succeeded'
@@ -202,12 +233,13 @@ export async function registerJobs(
     async (request, reply) => {
       const { labId, requestId } = request.params;
       const job = await database.transaction(async (tx) => {
-        await lockLab(tx, labId);
+        const lab = await lockLab(tx, labId);
         await requireCapture(labId, requestId, tx);
         await ensureIdle(tx, labId);
+        const target = snapshotTarget(lab, app);
         return (
           await tx.query(
-            'INSERT INTO delivery_jobs (id, lab_id, capture_id, timeout_ms, max_attempts, retry_delay_ms) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+            'INSERT INTO delivery_jobs (id, lab_id, capture_id, timeout_ms, max_attempts, retry_delay_ms, target_mode, target_url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
             [
               randomUUID(),
               labId,
@@ -215,6 +247,8 @@ export async function registerJobs(
               request.body.timeout_ms,
               request.body.max_attempts,
               request.body.retry_delay_ms,
+              target.target_mode,
+              target.target_url,
             ],
           )
         ).rows[0];

@@ -19,6 +19,7 @@ export default function JobPanel({
   disabled,
   onActiveChange,
   onChange,
+  localReceiver = false,
 }) {
   const [data, setData] = useState(null);
   const [maxAttempts, setMaxAttempts] = useState(3);
@@ -152,7 +153,10 @@ export default function JobPanel({
       </form>
       <p className="replay-note">
         Uses the timeout above. Retry delay doubles up to 5 seconds. A timeout can follow receiver
-        processing; enable duplicate protection when comparing safe retries.
+        processing;{' '}
+        {localReceiver
+          ? 'your receiver must handle duplicate deliveries safely.'
+          : 'enable duplicate protection when comparing safe retries.'}
       </p>
       {error && (
         <p role="alert" className="form-error">
@@ -179,6 +183,9 @@ export default function JobPanel({
                 </span>
               </div>
               <time dateTime={job.created_at}>{new Date(job.created_at).toLocaleString()}</time>
+              <p className="delivery-address">
+                To: {job.target_mode === 'local' ? job.target_url : 'Built-in mock'}
+              </p>
               {job.state === 'waiting_retry' && (
                 <p>Next attempt after {new Date(job.next_attempt_at).toLocaleTimeString()}</p>
               )}
@@ -201,6 +208,9 @@ export default function JobPanel({
                   <ol className="job-attempts">
                     {job.attempts.map((attempt) => (
                       <li key={attempt.id}>
+                        {attempt.target_url && (
+                          <p className="delivery-address">To: {attempt.target_url}</p>
+                        )}
                         <strong>
                           #{attempt.attempt_number} · {attempt.state}
                         </strong>

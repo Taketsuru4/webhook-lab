@@ -32,6 +32,9 @@ function ReceiverOutcome({ body }) {
 
 export default function ReplayPanel({ capture, labId }) {
   const [config, setConfig] = useState(null);
+  const [target, setTarget] = useState(null);
+  const [targetMode, setTargetMode] = useState(null);
+  const [targetUrl, setTargetUrl] = useState(null);
   const [history, setHistory] = useState(null);
   const [failFirst, setFailFirst] = useState(null);
   const [delayMs, setDelayMs] = useState(null);
@@ -60,13 +63,15 @@ export default function ReplayPanel({ capture, labId }) {
     async function refresh() {
       try {
         const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]);
-        const [receiver, runs] = await Promise.all([
+        const [receiver, runs, destination] = await Promise.all([
           api(`${base}/receiver`, { signal }),
           api(`${runsPath}?offset=${offset}`, { signal }),
+          api(`${base}/delivery-target`, { signal }),
         ]);
         if (controller.signal.aborted) return;
         setConfig(receiver);
         setHistory(runs);
+        setTarget(destination);
         setError('');
         if (runs.runs.some((run) => run.state === 'running')) timer = setTimeout(refresh, 2500);
       } catch (failure) {
@@ -95,6 +100,11 @@ export default function ReplayPanel({ capture, labId }) {
       });
       if (controller.signal.aborted) return;
       if (kind === 'save') setConfig(result);
+      if (kind === 'target') {
+        setTarget(result);
+        setTargetMode(result.mode);
+        setTargetUrl(result.url ?? '');
+      }
       setOffset(0);
       setRevision((value) => value + 1);
     } catch (failure) {
@@ -109,19 +119,24 @@ export default function ReplayPanel({ capture, labId }) {
       if (!controller.signal.aborted) setBusy('');
     }
   }
-  const dirty =
+  const mockDirty =
     config &&
     (Number(failFirst ?? config?.fail_first ?? 0) !== config.fail_first ||
       Number(delayMs ?? config?.delay_ms ?? 0) !== config.delay_ms ||
       (idempotency ?? config?.idempotency_enabled ?? false) !==
         (config.idempotency_enabled ?? false));
+  const mode = targetMode ?? target?.mode ?? 'mock';
+  const destinationDirty =
+    target &&
+    (mode !== target.mode || (mode === 'local' && (targetUrl ?? target.url ?? '') !== target.url));
+  const dirty = destinationDirty || (mode === 'mock' && mockDirty);
 
   return (
     <section className="replay-panel" aria-label="Replay experiment">
       <div className="replay-heading">
         <div>
           <span className="eyebrow">TRY THE DELIVERY</span>
-          <h3>Replay to mock receiver</h3>
+          <h3>Replay a captured request</h3>
         </div>
         <button
           className="icon-button"
@@ -136,77 +151,134 @@ export default function ReplayPanel({ capture, labId }) {
         </button>
       </div>
       <p className="muted">Send the original body again. Every replay creates one saved attempt.</p>
-      <details className="receiver-settings">
-        <summary>Receiver behavior{config ? ` · ${config.received_count} received` : ''}</summary>
-        <p className="muted">
-          Configure the next experiment. Saving resets the receiver’s attempt counter.
-        </p>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            perform('save', `${base}/receiver`, {
-              ...jsonPost({
-                fail_first: Number(failFirst ?? config?.fail_first ?? 0),
-                delay_ms: Number(delayMs ?? config?.delay_ms ?? 0),
-                idempotency_enabled: idempotency ?? config?.idempotency_enabled ?? false,
-              }),
-              method: 'PUT',
-            });
-          }}
-        >
-          <div className="replay-fields">
-            <label>
-              Fail first N requests
-              <input
-                type="number"
-                min="0"
-                max="10"
-                required
-                value={failFirst ?? config?.fail_first ?? 0}
-                onChange={(event) => setFailFirst(event.target.value)}
-                disabled={Boolean(busy) || loading || queueActive}
-              />
-            </label>
-            <label>
-              Response delay (ms)
-              <input
-                type="number"
-                min="0"
-                max="5000"
-                required
-                value={delayMs ?? config?.delay_ms ?? 0}
-                onChange={(event) => setDelayMs(event.target.value)}
-                disabled={Boolean(busy) || loading || queueActive}
-              />
-            </label>
-          </div>
-          <label className="idempotency-toggle">
-            <input
-              type="checkbox"
-              checked={idempotency ?? config?.idempotency_enabled ?? false}
-              onChange={(event) => setIdempotency(event.target.checked)}
-              disabled={Boolean(busy) || loading || queueActive}
-            />{' '}
-            Protect against duplicate demo actions
-          </label>
-          <p className="muted">
-            Uses a non-empty top-level event ID. Reusing it with different body bytes returns 409.
-            Saving keeps existing protection records; Clear inbox resets the experiment.
-          </p>
-          <button
-            className="button secondary compact"
-            disabled={!config || loading || Boolean(busy) || queueActive}
+      <form
+        className="delivery-target"
+        aria-label="Delivery destination"
+        onSubmit={(event) => {
+          event.preventDefault();
+          perform('target', `${base}/delivery-target`, {
+            ...jsonPost({ mode, url: mode === 'local' ? (targetUrl ?? target?.url ?? '') : null }),
+            method: 'PUT',
+          });
+        }}
+      >
+        <label>
+          Receiver
+          <select
+            value={mode}
+            onChange={(event) => setTargetMode(event.target.value)}
+            disabled={loading || Boolean(busy) || !target}
           >
-            {busy === 'save' ? 'Saving…' : 'Save & reset receiver'}
-          </button>
-        </form>
-        {config && (
-          <p className="receiver-applied">
-            Saved: first {config.fail_first} return 500, then 200 · {config.delay_ms} ms delay.
-          </p>
+            <option value="mock">Built-in mock</option>
+            <option value="local">My local endpoint</option>
+          </select>
+        </label>
+        {mode === 'local' && (
+          <>
+            <label>
+              Local receiver URL
+              <input
+                type="url"
+                required
+                maxLength={2048}
+                placeholder="http://localhost:3000/webhooks"
+                value={targetUrl ?? target?.url ?? ''}
+                onChange={(event) => setTargetUrl(event.target.value)}
+                disabled={loading || Boolean(busy)}
+              />
+            </label>
+            <p className="muted">
+              HTTP localhost or 127.0.0.1 with an explicit port. Replaying can trigger real actions
+              in your application; use test data.
+            </p>
+          </>
         )}
-      </details>
-      {config && (
+        <button
+          className="button secondary compact"
+          disabled={loading || Boolean(busy) || !target || !destinationDirty}
+        >
+          {busy === 'target' ? 'Saving…' : 'Save destination'}
+        </button>
+        <p className="destination-saved">
+          Saved destination: {target?.mode === 'local' ? target.url : 'Built-in mock'}
+        </p>
+        <p className="muted">
+          Existing jobs keep their saved destination. Changes apply to new deliveries.
+        </p>
+      </form>
+      {mode === 'mock' && (
+        <details className="receiver-settings">
+          <summary>Receiver behavior{config ? ` · ${config.received_count} received` : ''}</summary>
+          <p className="muted">
+            Configure the next experiment. Saving resets the receiver’s attempt counter.
+          </p>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              perform('save', `${base}/receiver`, {
+                ...jsonPost({
+                  fail_first: Number(failFirst ?? config?.fail_first ?? 0),
+                  delay_ms: Number(delayMs ?? config?.delay_ms ?? 0),
+                  idempotency_enabled: idempotency ?? config?.idempotency_enabled ?? false,
+                }),
+                method: 'PUT',
+              });
+            }}
+          >
+            <div className="replay-fields">
+              <label>
+                Fail first N requests
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  required
+                  value={failFirst ?? config?.fail_first ?? 0}
+                  onChange={(event) => setFailFirst(event.target.value)}
+                  disabled={Boolean(busy) || loading || queueActive}
+                />
+              </label>
+              <label>
+                Response delay (ms)
+                <input
+                  type="number"
+                  min="0"
+                  max="5000"
+                  required
+                  value={delayMs ?? config?.delay_ms ?? 0}
+                  onChange={(event) => setDelayMs(event.target.value)}
+                  disabled={Boolean(busy) || loading || queueActive}
+                />
+              </label>
+            </div>
+            <label className="idempotency-toggle">
+              <input
+                type="checkbox"
+                checked={idempotency ?? config?.idempotency_enabled ?? false}
+                onChange={(event) => setIdempotency(event.target.checked)}
+                disabled={Boolean(busy) || loading || queueActive}
+              />{' '}
+              Protect against duplicate demo actions
+            </label>
+            <p className="muted">
+              Uses a non-empty top-level event ID. Reusing it with different body bytes returns 409.
+              Saving keeps existing protection records; Clear inbox resets the experiment.
+            </p>
+            <button
+              className="button secondary compact"
+              disabled={!config || loading || Boolean(busy) || queueActive}
+            >
+              {busy === 'save' ? 'Saving…' : 'Save & reset receiver'}
+            </button>
+          </form>
+          {config && (
+            <p className="receiver-applied">
+              Saved: first {config.fail_first} return 500, then 200 · {config.delay_ms} ms delay.
+            </p>
+          )}
+        </details>
+      )}
+      {mode === 'mock' && config && (
         <div className="receiver-outcomes" aria-label="Mock receiver demo totals">
           <div>
             <strong>{config.processed_count ?? 0}</strong>
@@ -244,7 +316,7 @@ export default function ReplayPanel({ capture, labId }) {
         </label>
         <button
           className="button primary"
-          disabled={!config || loading || Boolean(busy) || dirty || queueActive}
+          disabled={!config || !target || loading || Boolean(busy) || dirty || queueActive}
         >
           <RotateCcw size={15} />
           {busy === 'replay' ? 'Replaying…' : 'Replay original body'}
@@ -260,7 +332,8 @@ export default function ReplayPanel({ capture, labId }) {
         labId={labId}
         captureId={capture.id}
         timeoutMs={timeoutMs}
-        disabled={!config || loading || Boolean(busy) || dirty}
+        disabled={!config || !target || loading || Boolean(busy) || dirty}
+        localReceiver={target?.mode === 'local'}
         onActiveChange={setQueueActive}
         onChange={jobsChanged}
       />
@@ -294,7 +367,10 @@ export default function ReplayPanel({ capture, labId }) {
                 </span>
               </div>
               <time dateTime={run.started_at}>{new Date(run.started_at).toLocaleString()}</time>
-              <ReceiverOutcome body={run.response_body} />
+              <p className="delivery-address">
+                To: {run.target_url ?? 'Built-in mock (legacy attempt)'}
+              </p>
+              {run.target_mode !== 'local' && <ReceiverOutcome body={run.response_body} />}
               {run.error && <p>{run.error}</p>}
               {run.response_body && (
                 <details>

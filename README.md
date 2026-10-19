@@ -48,6 +48,7 @@ The API returns `202` only after the request has been stored. `202` means **capt
 - Refresh the inbox every 2.5 seconds, with a pause control.
 - See actual request totals, duplicate counts, stored body sizes, and an hourly traffic histogram.
 - Replay original bodies over real HTTP to the built-in mock receiver.
+- Select your own HTTP localhost receiver per lab for manual replay and automatic retries.
 - Configure the first 0–10 receiver requests to return 500, then 200; add 0–5000 ms response delay.
 - Set replay timeouts (100–10000 ms) and inspect persisted status, duration, errors and response bodies.
 - Queue background deliveries with 1–5 attempts, capped exponential retry delay, persisted attempt results and cancellation.
@@ -68,6 +69,32 @@ Nothing is seeded into the inbox. The sample sender creates real, synthetic requ
 5. Refresh the page and reselect the capture: history and receiver settings remain available. **Clear inbox** deletes only the selected lab’s experiments and resets its receiver counter, preserving its endpoint and saved scenario.
 
 Each click creates one new attempt. A timeout does not prove that the receiver did nothing. Replays forward the original body and Content-Type only; captured credentials and provider signature headers are excluded.
+
+## Replay to your own local application
+
+Start your webhook handler, or try the included JavaScript example in another terminal:
+
+```sh
+npm run example:receiver
+```
+
+Select a capture in Webhook Lab. Under **Receiver**, choose **My local endpoint**, enter `http://localhost:3000/webhooks`, and click **Save destination**. Then use **Replay original body** or **Queue delivery**. The history records the actual destination and the response from your application. Switch to **Built-in mock** to use the mock failure/delay/idempotency controls again.
+
+To try retries with the example receiver, restart it with:
+
+```sh
+FAIL_FIRST=2 npm run example:receiver
+```
+
+Queue three attempts: the example returns 500, 500, then 200. Optional `DELAY_MS=3000` demonstrates a timeout with the default 2000 ms delivery timeout; `RECEIVER_PORT=3001` changes its port. These environment-variable examples use POSIX shell syntax. The example's counter resets on restart and it does not implement durable idempotency.
+
+Destinations accept only `http://localhost:PORT/path` or `http://127.0.0.1:PORT/path`, with an explicit port from 1–65535. `localhost` is normalized to literal `127.0.0.1` without DNS resolution. HTTPS, IPv6, remote/LAN hosts, URL credentials, fragments and the Lab API's own port are rejected. Redirect responses are recorded without being followed. A receiver inside a container needs a port published on the same computer; container networking is not configured by the Lab.
+
+Each job saves its selected destination at creation. Changing the lab setting affects new deliveries, while existing jobs keep their original local URL across retries and restart. Each attempt also records where it was sent. Mock jobs remain attached to this API's mock receiver after its listening port changes. Legacy attempts are labelled as mock without inventing a historical URL.
+
+Replay sends real POST requests and can trigger actions in your handler. Use synthetic events and a development receiver that handles duplicates safely. Mock duplicate protection does not protect your own application. The API sends the original body, Content-Type and a generated `X-Webhook-Lab-Run-Id`; other captured headers, including credentials and provider signatures, are not forwarded. This is not a provider signature verification tool.
+
+Both the sender and receiver run on your computer. This feature does not provide a public capture URL for external webhook providers.
 
 ## Try automatic retries
 
@@ -124,12 +151,14 @@ flowchart LR
     Management --> DB
     UI --> Replay[Manual replay API]
     Replay --> DB
-    Replay -->|Original body over HTTP| Mock[Built-in mock receiver]
+    Replay -->|Original body over HTTP| Target[Mock or selected localhost receiver]
+    Target --> Mock[Built-in mock receiver]
+    Target --> Local[Your local application]
     Mock --> DB
     UI --> Queue[Delivery job API]
     Queue --> DB
     DB --> Worker[Local background worker]
-    Worker -->|Recorded attempts over HTTP| Mock
+    Worker -->|Recorded attempts over HTTP| Target
 ```
 
 The capture route has its own raw-buffer content parser. Management routes keep normal JSON validation. The API persists a request before acknowledging receipt. Each polling attempt cancels and drains its paired reads on failure, with a 10-second deadline, before scheduling another refresh.
@@ -142,6 +171,7 @@ The capture route has its own raw-buffer content parser. Management routes keep 
 | `server/jobs.js`          | Durable queue, leases, retry policy, cancellation and worker lifecycle |
 | `server/receiver.js`      | Atomic mock receipts, idempotency keys and demo effects                |
 | `server/replay.js`        | Mock scenarios, byte-preserving HTTP replay, attempt history           |
+| `server/targets.js`       | Local destination validation, settings and snapshot resolution         |
 | `server/capture.js`       | Event metadata, header redaction, request storage                      |
 | `server/database.js`      | Embedded and external database adapters                                |
 | `server/schema.sql`       | Original capture schema                                                |
@@ -180,7 +210,7 @@ This is a **local, single-user, single-API-process** tool, including when using 
 
 Bodies are limited to 256 KiB. Common credential headers (`Authorization`, cookies, API keys, and common token headers) are redacted before storage. Payloads and arbitrary custom headers can still contain sensitive data; use synthetic data while experimenting. Raw text previews decode bytes as UTF-8, while downloaded bodies preserve the original bytes.
 
-An event is identified only by complete top-level string fields `id` and `type`. NUL characters or unpaired UTF-16 surrogates make that field unavailable as metadata (absent ID or `untyped` type); the original body and parsed payload remain available. Full IDs are compared for duplicates, with a digest index narrowing candidates without imposing the B-tree key-size limit on the ID itself. Startup migrations restore previously truncated metadata from original bodies and record applied versions. Repeated-ID badges indicate repeated provider IDs within one lab, not semantic equivalence of arbitrary payloads. Requests without IDs count individually. Captures and mock receipts have no automatic expiry yet; use Clear inbox for cleanup. Replay response bodies are capped at 16 KiB, with an explicit truncation flag. At most one experiment is active per lab; a partial unique index permits one queued job per lab. The local worker runs one queued attempt at a time, alongside up to eight manual attempts per API process. Runs left in `running` for over 15 seconds are marked `interrupted` on startup or subsequent history/management operations; manual attempts are never automatically resent. Background jobs recover stale attempts separately and retry only within their configured budget. Replays target only this API’s built-in loopback receiver; arbitrary outbound URLs are unsupported. Manual replay does not guarantee exactly-once processing or validate provider signatures. Pagination uses offsets, so the visible pages can shift as live requests arrive; pause the sender for stable historical browsing.
+An event is identified only by complete top-level string fields `id` and `type`. NUL characters or unpaired UTF-16 surrogates make that field unavailable as metadata (absent ID or `untyped` type); the original body and parsed payload remain available. Full IDs are compared for duplicates, with a digest index narrowing candidates without imposing the B-tree key-size limit on the ID itself. Startup migrations restore previously truncated metadata from original bodies and record applied versions. Repeated-ID badges indicate repeated provider IDs within one lab, not semantic equivalence of arbitrary payloads. Requests without IDs count individually. Captures and mock receipts have no automatic expiry yet; use Clear inbox for cleanup. Replay response bodies are capped at 16 KiB, with an explicit truncation flag. At most one experiment is active per lab; a partial unique index permits one queued job per lab. The local worker runs one queued attempt at a time, alongside up to eight manual attempts per API process. Runs left in `running` for over 15 seconds are marked `interrupted` on startup or subsequent history/management operations; manual attempts are never automatically resent. Background jobs recover stale attempts separately and retry only within their configured budget. Replays target the built-in mock or an explicitly selected HTTP IPv4 loopback receiver; arbitrary outbound URLs are unsupported. Manual replay does not guarantee exactly-once processing or validate provider signatures. Pagination uses offsets, so the visible pages can shift as live requests arrive; pause the sender for stable historical browsing.
 
 ## Roadmap
 
@@ -189,6 +219,7 @@ An event is identified only by complete top-level string fields `id` and `type`.
 - [x] Persist local jobs and every attempt with a built-in database worker.
 - [ ] Add an outbox dispatcher and Redis/BullMQ for a separate scalable worker.
 - [x] Manual replay of original bodies with persisted attempt history.
+- [x] Selected localhost receiver with persisted destination snapshots for jobs and attempts.
 - [x] Finite automatic retries, exponential backoff, cancellation and restart recovery.
 - [ ] Add configurable duplicate-delivery and out-of-order scenarios.
 - [x] Mock receiver with fail-first responses and delayed acknowledgements.

@@ -555,6 +555,11 @@ function Guide({ lab, onError, onSend }) {
           first request, then replay twice to compare HTTP 500 and 200. Set a response delay above
           the replay timeout to explore uncertain delivery.
         </p>
+        <p>
+          To test your own application, choose My local endpoint under Receiver, enter its HTTP
+          localhost URL with a port, and save the destination. Replay or queue the capture to send
+          its original body to your handler. Existing jobs keep their saved destination.
+        </p>
       </section>
       <section className="guide-card wide">
         <span className="eyebrow">BUILDING IN THE OPEN</span>
@@ -583,6 +588,11 @@ function Guide({ lab, onError, onSend }) {
           <div>
             <span className="roadmap-dot done" />
             <strong>Background retries</strong>
+            <span>Available now</span>
+          </div>
+          <div>
+            <span className="roadmap-dot done" />
+            <strong>Your local receiver</strong>
             <span>Available now</span>
           </div>
         </div>
