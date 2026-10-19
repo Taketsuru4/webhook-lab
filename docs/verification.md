@@ -57,3 +57,11 @@ At the time of this October 2 verification, GitHub Actions was configured but ha
 - UI tests cover normalized local destinations, disabled sends for unsaved changes, correction after a rejected URL, hidden mock controls, historical destination visibility and not interpreting a local receiver response as a mock idempotency outcome.
 - The isolated browser run used a temporary database on port 4311 and the included example receiver on 4312 with `FAIL_FIRST=2`. Queue delivery recorded 500, 500 and 200 at the selected address; manual replay then returned 200. Reload retained the destination, job and manual history.
 - Desktop and 375 px screenshots were inspected. At 375 px, document scroll width equalled the viewport width. No browser console errors or warnings were reported in the verified flow. No new accessibility audit was performed.
+
+## Browser demo checks — October 19, 2026
+
+- `npm run verify` passed: 56 API tests and 33 UI tests, lint, formatting and the normal production build. `npm run build:demo` also passed independently; CI builds both modes.
+- Simulator tests cover seeded data, per-visitor isolation, search/duplicates, Unicode bytes, mock outcomes, retry ordering, conflicts, cancellation, timeouts, cleanup confirmation, aborted reads and refusal of real receiver destinations. The simulator's HTTP flow test asserts that `fetch` is never called.
+- An integrated React test checks the visible simulation banner, seeded capture inspection, absence of URL-copy controls and disabled local receiver selection.
+- A static-build browser check on port 4313 configured fail-first=2 and duplicate protection, queued three simulated attempts, and observed 500, 500, 200 with one simulated action. This is a UI simulation check, not evidence of server-side delivery or durable persistence.
+- Demo state is bounded in memory and resets on reload. It intentionally cannot receive external webhooks, execute real HTTP deliveries or access shared visitor data. Vercel deployment excludes the server, tests, local database and environment files.

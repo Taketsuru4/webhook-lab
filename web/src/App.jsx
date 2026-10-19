@@ -24,7 +24,7 @@ import {
   Webhook,
   X,
 } from 'lucide-react';
-import { api, curlCommand, formatBytes, jsonPost, sampleEvent } from './api.js';
+import { api, curlCommand, formatBytes, jsonPost, sampleEvent, isDemo } from './api.js';
 import { readInbox } from './polling.js';
 import ReplayPanel from './ReplayPanel.jsx';
 
@@ -190,7 +190,11 @@ function SendModal({ lab, onClose, onSent }) {
   return (
     <Modal
       title="Send a sample event"
-      description={`Make a real HTTP request to ${lab.name}. Edit the JSON to try your own event.`}
+      description={
+        isDemo
+          ? 'Simulate a capture in your browser. No HTTP request is delivered. Edit the JSON to try your own event.'
+          : `Make a real HTTP request to ${lab.name}. Edit the JSON to try your own event.`
+      }
       onClose={onClose}
     >
       <form onSubmit={submit}>
@@ -438,7 +442,7 @@ function Inspector({ capture, labId, selectedId, loading, error, onSelect, onRet
           </div>
           <div className="inspector-footer">
             <span>
-              <Database size={13} /> Saved to PostgreSQL
+              <Database size={13} /> {isDemo ? 'Browser simulation' : 'Saved to PostgreSQL'}
             </span>
             <button className="button secondary compact" onClick={download}>
               <Download size={14} />
@@ -503,6 +507,39 @@ function Traffic({ counts = [] }) {
 }
 
 function Guide({ lab, onError, onSend }) {
+  if (isDemo)
+    return (
+      <section className="guide-card">
+        <span className="eyebrow">INTERACTIVE DEMO</span>
+        <h2>Try a delivery experiment</h2>
+        <p>
+          Select a seeded event, open Receiver behavior, set Fail first N requests to 2, and save.
+          Queue delivery with three attempts to see simulated 500, 500 and 200 responses.
+        </p>
+        <p>
+          Enable Protect against duplicate demo actions and replay the same event twice. Compare the
+          number of deliveries with the number of simulated actions. Try a 3000 ms delay with a 2000
+          ms timeout to explore uncertain delivery.
+        </p>
+        <p>
+          This demo runs entirely in this tab. Reload resets its synthetic data and stops its
+          timers. It has no public webhook endpoint, server database or network delivery. Do not
+          enter sensitive data.
+        </p>
+        <p>
+          The JavaScript local application has real Fastify HTTP capture, PostgreSQL persistence,
+          durable retry jobs and replay to your own localhost receiver.
+        </p>
+        <a
+          className="button secondary"
+          href="https://github.com/Taketsuru4/webhook-lab"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Get the local app on GitHub
+        </a>
+      </section>
+    );
   return (
     <div className="guide-grid">
       <section className="guide-card">
@@ -753,7 +790,7 @@ export default function App() {
           <span className="workspace-avatar">W</span>
           <div>
             <strong>My workspace</strong>
-            <span>Local development</span>
+            <span>{isDemo ? 'Recruiter playground' : 'Local development'}</span>
           </div>
           <ChevronDown size={14} />
         </div>
@@ -811,11 +848,13 @@ export default function App() {
           <div className="local-indicator">
             <span className={`status-dot ${connected ? '' : 'offline'}`} />
             <span>
-              {database === 'embedded'
-                ? 'Embedded PostgreSQL'
-                : database === 'postgres'
-                  ? 'PostgreSQL connected'
-                  : 'Connecting…'}
+              {isDemo
+                ? 'Browser simulation'
+                : database === 'embedded'
+                  ? 'Embedded PostgreSQL'
+                  : database === 'postgres'
+                    ? 'PostgreSQL connected'
+                    : 'Connecting…'}
             </span>
             <span className="version">v0.1</span>
           </div>
@@ -838,7 +877,7 @@ export default function App() {
             </button>
             <span className="environment-pill">
               <Terminal size={12} />
-              Local
+              {isDemo ? 'Demo' : 'Local'}
             </span>
             <button
               className="help-link"
@@ -851,6 +890,20 @@ export default function App() {
           </div>
         </header>
         <div className="page-content">
+          {isDemo && (
+            <section className="demo-banner" aria-label="Demo information">
+              <div>
+                <strong>Interactive demo · browser simulation</strong>
+                <p>
+                  Synthetic data stays in this tab. No real webhooks are sent or received. Reload
+                  resets the playground.
+                </p>
+              </div>
+              <a href="https://github.com/Taketsuru4/webhook-lab" target="_blank" rel="noreferrer">
+                Get the local app ↗
+              </a>
+            </section>
+          )}
           <div className="page-title">
             <div>
               <div className="title-eyebrow">
@@ -913,21 +966,25 @@ export default function App() {
                 <Webhook size={22} />
               </div>
               <div className="endpoint-main">
-                <span className="eyebrow">YOUR CAPTURE ENDPOINT</span>
+                <span className="eyebrow">
+                  {isDemo ? 'SIMULATED INBOX · NO PUBLIC ENDPOINT' : 'YOUR CAPTURE ENDPOINT'}
+                </span>
                 <div className="endpoint-url">
                   <span className="method-pill">POST</span>
-                  <code>{lab.endpoint}</code>
+                  <code>{isDemo ? 'Use Send sample event to try a capture' : lab.endpoint}</code>
                 </div>
               </div>
-              <div className="endpoint-actions">
-                <CopyButton text={lab.endpoint} label="Copy URL" onError={setError} />
-                <CopyButton
-                  text={curlCommand(lab.endpoint)}
-                  label="Copy curl"
-                  className="button subtle compact"
-                  onError={setError}
-                />
-              </div>
+              {!isDemo && (
+                <div className="endpoint-actions">
+                  <CopyButton text={lab.endpoint} label="Copy URL" onError={setError} />
+                  <CopyButton
+                    text={curlCommand(lab.endpoint)}
+                    label="Copy curl"
+                    className="button subtle compact"
+                    onError={setError}
+                  />
+                </div>
+              )}
             </section>
           )}
           {view === 'guide' && lab ? (
@@ -1048,7 +1105,9 @@ export default function App() {
                       <p>
                         {query || filter !== 'all'
                           ? 'Try another search or switch to all requests.'
-                          : 'Send a sample event or POST to your endpoint.\nYour requests will appear right here.'}
+                          : isDemo
+                            ? 'Send a sample event to simulate a capture in this tab.'
+                            : 'Send a sample event or POST to your endpoint.\nYour requests will appear right here.'}
                       </p>
                       {query || filter !== 'all' ? (
                         <button
@@ -1209,7 +1268,11 @@ export default function App() {
             setLabs((items) => [...items, created]);
             chooseLab(created.id);
             setView('inbox');
-            setNotice(`“${created.name}” is ready. Copy the endpoint to start capturing.`);
+            setNotice(
+              isDemo
+                ? `“${created.name}” is ready. Send a sample event to begin.`
+                : `“${created.name}” is ready. Copy the endpoint to start capturing.`,
+            );
           }}
         />
       )}

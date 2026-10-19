@@ -14,6 +14,14 @@ Built entirely in **JavaScript** with React, Vite, Fastify, and PostgreSQL.
 
 ## Try it in two minutes
 
+### Browser demo
+
+The Vercel build is a clearly labelled browser-only simulation for exploring the dashboard. It seeds synthetic captures and simulates mock failures, timeouts, retries and idempotency. Data lives only in the current tab's memory; reload resets it and stops pending simulations. It has no public capture endpoint, real HTTP delivery, database or shared visitor data. Local receiver delivery is available in the local application below. Do not enter sensitive information in the demo.
+
+Run the demo locally with `npm run dev:demo`, or build its static assets with `npm run build:demo`. Vite's explicit `demo` build mode enables the simulator without environment secrets. Vercel uses the demo build via `vercel.json`; ordinary `npm run dev` and `npm run build` keep the real local backend workflow. No server or local database is deployed.
+
+### Local application
+
 Requires Node.js **22.12+** (Node.js 24 LTS recommended).
 
 ```sh

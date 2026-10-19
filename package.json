@@ -12,6 +12,8 @@
     "dev:api": "node --watch --env-file-if-exists=.env server/index.js",
     "dev:web": "vite --host 127.0.0.1",
     "build": "vite build",
+    "build:demo": "vite build --mode demo",
+    "dev:demo": "vite --host 127.0.0.1 --mode demo",
     "start": "node --env-file-if-exists=.env server/index.js",
     "example:receiver": "node examples/local-receiver.js",
     "test": "npm run test:api && npm run test:ui",
